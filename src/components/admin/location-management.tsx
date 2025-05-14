@@ -12,7 +12,6 @@ import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-// Lazy load the dialog
 const LocationFormDialog = React.lazy(() => 
   import('./location-form-dialog').then(module => ({ default: module.LocationFormDialog }))
 );
@@ -27,14 +26,21 @@ export function LocationManagement() {
   const [locationToDelete, setLocationToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchLocations = useCallback(() => {
+  const fetchLocations = useCallback(async () => {
+    console.log("[LocationManagement] fetchLocations: Fetching...");
     setIsLoading(true);
-    // Simulate a short delay for UX, as in-memory is instant
-    setTimeout(() => {
-      setLocations([...getLocations()]); // Spread to ensure new array for re-render
+    try {
+      const fetchedLocations = await getLocations();
+      setLocations(fetchedLocations);
+      console.log("[LocationManagement] fetchLocations: Success, fetched locations:", fetchedLocations.length);
+    } catch (error) {
+      console.error("[LocationManagement] fetchLocations: Error fetching locations:", error);
+      toast({ title: "Error", description: "Failed to fetch locations.", variant: "destructive" });
+      setLocations([]);
+    } finally {
       setIsLoading(false);
-    }, 300); 
-  }, []);
+    }
+  }, [toast]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -56,21 +62,25 @@ export function LocationManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (locationToDelete) {
-      setIsLoading(true); // Optional: show loader during simulated "deletion"
-      setTimeout(() => {
-        const success = deleteLocationData(locationToDelete);
+      setIsLoading(true); 
+      try {
+        const success = await deleteLocationData(locationToDelete);
         if (success) {
           toast({ title: "Location Deleted", description: "The location has been successfully deleted." });
           fetchLocations(); 
         } else {
-          toast({ title: "Error Deleting Location", description: "Failed to delete location. It might have rooms associated with it.", variant: "destructive" });
+          toast({ title: "Error Deleting Location", description: "Failed to delete location. It might have rooms associated with it or another error occurred.", variant: "destructive" });
         }
+      } catch (error) {
+        console.error("[LocationManagement] confirmDelete: Error deleting location:", error);
+        toast({ title: "Error", description: "An unexpected error occurred while deleting the location.", variant: "destructive" });
+      } finally {
         setLocationToDelete(null);
         setIsLoading(false);
         setIsAlertOpen(false);
-      }, 300);
+      }
     } else {
      setIsAlertOpen(false);
     }
@@ -84,7 +94,16 @@ export function LocationManagement() {
     }
   };
 
-  if (!isMounted || isLoading && locations.length === 0) { // Show loader if truly loading initial data
+  if (!isMounted) { 
+    return (
+      <div className="flex items-center justify-center py-10">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <span className="ml-2">Initializing...</span>
+      </div>
+    );
+  }
+  
+  if (isLoading && locations.length === 0) { // Show main loader only if truly loading initial data
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -103,16 +122,16 @@ export function LocationManagement() {
         </Button>
       </div>
 
-      {isLoading && locations.length > 0 && ( // Show subtle loading indicator for re-fetches
-        <div className="flex items-center justify-center py-2">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+      {isLoading && locations.length > 0 && ( // Subtle loader for re-fetches when data already exists
+        <div className="flex items-center justify-start py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span>Refreshing locations...</span>
         </div>
       )}
 
       {!isLoading && locations.length === 0 ? (
          <p className="text-muted-foreground text-center py-4">No locations found. Add a new location to get started.</p>
-      ) : (
+      ) : locations.length > 0 ? (
         <Table>
           <TableHeader>
             <TableRow>
@@ -125,7 +144,7 @@ export function LocationManagement() {
             {locations.map((location) => (
               <TableRow key={location.id}>
                 <TableCell className="font-medium">{location.name}</TableCell>
-                <TableCell className="text-muted-foreground">{location.id}</TableCell>
+                <TableCell className="text-muted-foreground text-xs">{location.id}</TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -147,7 +166,7 @@ export function LocationManagement() {
             ))}
           </TableBody>
         </Table>
-      )}
+      ) : null } {/* Render nothing if !isLoading and locations.length is 0 to avoid flicker before empty message shows */}
 
       {isMounted && (
         <React.Suspense fallback={<div>Loading form...</div>}>
@@ -169,8 +188,9 @@ export function LocationManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setBookingToDelete(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel onClick={() => { setLocationToDelete(null); setIsAlertOpen(false); }}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isLoading}>
+                {isLoading && locationToDelete ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Delete
             </AlertDialogAction>
           </AlertDialogFooter>

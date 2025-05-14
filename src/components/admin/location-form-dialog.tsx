@@ -23,12 +23,12 @@ type LocationFormValues = z.infer<typeof locationFormSchema>;
 interface LocationFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
-  location?: Location; // For editing
+  location?: Location; 
 }
 
 export function LocationFormDialog({ isOpen, onClose, location }: LocationFormDialogProps) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<LocationFormValues>({
     resolver: zodResolver(locationFormSchema),
@@ -42,35 +42,43 @@ export function LocationFormDialog({ isOpen, onClose, location }: LocationFormDi
       form.reset({
         name: location?.name || '',
       });
+      // Reset submitting state when dialog opens/location changes
+      setIsSubmitting(false); 
     }
   }, [isOpen, location, form]);
 
-  const onSubmit = (data: LocationFormValues) => {
-    setIsLoading(true);
-    // Simulate API call for UX consistency
-    setTimeout(() => {
-      try {
-        if (location) {
-          updateLocation({ ...location, name: data.name });
+  const onSubmit = async (data: LocationFormValues) => {
+    setIsSubmitting(true);
+    try {
+      if (location) {
+        const success = await updateLocation({ ...location, name: data.name });
+        if (success) {
           toast({ title: "Location Updated", description: "The location has been successfully updated." });
+          onClose(true);
         } else {
-          addLocation(data.name);
-          toast({ title: "Location Added", description: "The new location has been successfully added." });
+          toast({ title: "Error", description: "Failed to update location. Please try again.", variant: "destructive" });
         }
-        onClose(true);
-      } catch (error) {
-          toast({ title: "Error", description: "Failed to save location. Please try again.", variant: "destructive" });
-          console.error("Failed to save location:", error);
-      } finally {
-          setIsLoading(false);
+      } else {
+        const newLocation = await addLocation(data.name);
+        if (newLocation) {
+          toast({ title: "Location Added", description: "The new location has been successfully added." });
+          onClose(true);
+        } else {
+          toast({ title: "Error", description: "Failed to add location. Please try again.", variant: "destructive" });
+        }
       }
-    }, 300);
+    } catch (error) {
+        toast({ title: "Error", description: "An unexpected error occurred. Please try again.", variant: "destructive" });
+        console.error("Failed to save location:", error);
+    } finally {
+        setIsSubmitting(false);
+    }
   };
   
   if (!isOpen) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose(false)}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(false); }}>
       <DialogContent className="sm:max-w-md">
         <DialogHeader>
           <DialogTitle className="text-primary">{location ? 'Edit Location' : 'Add New Location'}</DialogTitle>
@@ -92,10 +100,10 @@ export function LocationFormDialog({ isOpen, onClose, location }: LocationFormDi
             />
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={() => onClose(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={isSubmitting}>Cancel</Button>
               </DialogClose>
-              <Button type="submit" disabled={isLoading}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Button type="submit" disabled={isSubmitting}>
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {location ? 'Save Changes' : 'Add Location'}
               </Button>
             </DialogFooter>
