@@ -45,24 +45,26 @@ export function LocationFormDialog({ isOpen, onClose, location }: LocationFormDi
     }
   }, [isOpen, location, form]);
 
-  const onSubmit = async (data: LocationFormValues) => {
+  const onSubmit = (data: LocationFormValues) => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300)); // Simulate API call
-    try {
-      if (location) {
-        updateLocation({ ...location, name: data.name });
-        toast({ title: "Location Updated", description: "The location has been successfully updated." });
-      } else {
-        addLocation(data.name);
-        toast({ title: "Location Added", description: "The new location has been successfully added." });
+    // Simulate API call for UX consistency
+    setTimeout(() => {
+      try {
+        if (location) {
+          updateLocation({ ...location, name: data.name });
+          toast({ title: "Location Updated", description: "The location has been successfully updated." });
+        } else {
+          addLocation(data.name);
+          toast({ title: "Location Added", description: "The new location has been successfully added." });
+        }
+        onClose(true);
+      } catch (error) {
+          toast({ title: "Error", description: "Failed to save location. Please try again.", variant: "destructive" });
+          console.error("Failed to save location:", error);
+      } finally {
+          setIsLoading(false);
       }
-      onClose(true);
-    } catch (error) {
-        toast({ title: "Error", description: "Failed to save location. Please try again.", variant: "destructive" });
-        console.error("Failed to save location:", error);
-    } finally {
-        setIsLoading(false);
-    }
+    }, 300);
   };
   
   if (!isOpen) return null;

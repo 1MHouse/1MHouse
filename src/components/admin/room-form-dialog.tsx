@@ -25,7 +25,7 @@ type RoomFormValues = z.infer<typeof roomFormSchema>;
 interface RoomFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
-  room?: Room; // For editing
+  room?: Room; 
   locations: Location[];
   defaultLocationId?: string;
 }
@@ -51,28 +51,29 @@ export function RoomFormDialog({ isOpen, onClose, room, locations, defaultLocati
     }
   }, [isOpen, room, locations, defaultLocationId, form]);
 
-  const onSubmit = async (data: RoomFormValues) => {
+  const onSubmit = (data: RoomFormValues) => {
     if (locations.length === 0) {
         toast({ title: "Error", description: "No locations available. Please add a location first.", variant: "destructive" });
         return;
     }
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-    try {
-      if (room) {
-        updateRoom({ ...room, name: data.name, locationId: data.locationId });
-        toast({ title: "Room Updated", description: "The room has been successfully updated." });
-      } else {
-        addRoom(data.name, data.locationId);
-        toast({ title: "Room Added", description: "The new room has been successfully added." });
+    setTimeout(() => {
+      try {
+        if (room) {
+          updateRoom({ ...room, name: data.name, locationId: data.locationId });
+          toast({ title: "Room Updated", description: "The room has been successfully updated." });
+        } else {
+          addRoom(data.name, data.locationId);
+          toast({ title: "Room Added", description: "The new room has been successfully added." });
+        }
+        onClose(true);
+      } catch (error) {
+          toast({ title: "Error", description: "Failed to save room. Please try again.", variant: "destructive" });
+          console.error("Failed to save room:", error);
+      } finally {
+          setIsLoading(false);
       }
-      onClose(true);
-    } catch (error) {
-        toast({ title: "Error", description: "Failed to save room. Please try again.", variant: "destructive" });
-        console.error("Failed to save room:", error);
-    } finally {
-        setIsLoading(false);
-    }
+    }, 300);
   };
   
   if (!isOpen) return null;
@@ -91,7 +92,7 @@ export function RoomFormDialog({ isOpen, onClose, room, locations, defaultLocati
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Location</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value} disabled={locations.length === 0}>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={locations.length === 0}>
                     <FormControl>
                       <SelectTrigger>
                         <SelectValue placeholder={locations.length > 0 ? "Select a location" : "No locations available"} />

@@ -12,7 +12,10 @@ import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const LocationFormDialog = React.lazy(() => import('./location-form-dialog').then(module => ({ default: module.LocationFormDialog })));
+// Lazy load the dialog
+const LocationFormDialog = React.lazy(() => 
+  import('./location-form-dialog').then(module => ({ default: module.LocationFormDialog }))
+);
 
 export function LocationManagement() {
   const [locations, setLocations] = useState<Location[]>([]);
@@ -24,11 +27,13 @@ export function LocationManagement() {
   const [locationToDelete, setLocationToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchLocations = useCallback(async () => {
+  const fetchLocations = useCallback(() => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-    setLocations([...getLocations()]);
-    setIsLoading(false);
+    // Simulate a short delay for UX, as in-memory is instant
+    setTimeout(() => {
+      setLocations([...getLocations()]); // Spread to ensure new array for re-render
+      setIsLoading(false);
+    }, 300); 
   }, []);
 
   useEffect(() => {
@@ -51,19 +56,24 @@ export function LocationManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (locationToDelete) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const success = deleteLocationData(locationToDelete);
-      if (success) {
-        toast({ title: "Location Deleted", description: "The location has been successfully deleted." });
-        fetchLocations(); 
-      } else {
-        toast({ title: "Error Deleting Location", description: "Failed to delete location. It might have rooms associated with it.", variant: "destructive" });
-      }
-      setLocationToDelete(null);
+      setIsLoading(true); // Optional: show loader during simulated "deletion"
+      setTimeout(() => {
+        const success = deleteLocationData(locationToDelete);
+        if (success) {
+          toast({ title: "Location Deleted", description: "The location has been successfully deleted." });
+          fetchLocations(); 
+        } else {
+          toast({ title: "Error Deleting Location", description: "Failed to delete location. It might have rooms associated with it.", variant: "destructive" });
+        }
+        setLocationToDelete(null);
+        setIsLoading(false);
+        setIsAlertOpen(false);
+      }, 300);
+    } else {
+     setIsAlertOpen(false);
     }
-    setIsAlertOpen(false);
   };
 
   const handleFormClose = (updated: boolean) => {
@@ -74,7 +84,7 @@ export function LocationManagement() {
     }
   };
 
-  if (!isMounted || isLoading) {
+  if (!isMounted || isLoading && locations.length === 0) { // Show loader if truly loading initial data
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -93,7 +103,14 @@ export function LocationManagement() {
         </Button>
       </div>
 
-      {locations.length === 0 ? (
+      {isLoading && locations.length > 0 && ( // Show subtle loading indicator for re-fetches
+        <div className="flex items-center justify-center py-2">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+        </div>
+      )}
+
+      {!isLoading && locations.length === 0 ? (
          <p className="text-muted-foreground text-center py-4">No locations found. Add a new location to get started.</p>
       ) : (
         <Table>
@@ -152,7 +169,7 @@ export function LocationManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setBookingToDelete(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Delete
             </AlertDialogAction>

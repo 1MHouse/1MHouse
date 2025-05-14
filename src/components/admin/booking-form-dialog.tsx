@@ -38,7 +38,7 @@ export interface BookingFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
   booking?: Booking; 
-  rooms: Room[]; // These rooms are context-dependent (all rooms in admin, location-specific in calendar)
+  rooms: Room[]; 
   defaultDate?: Date;
   defaultRoomId?: string;
 }
@@ -60,38 +60,44 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
   
   useEffect(() => {
     if (isOpen) {
+      // Ensure dates are actual Date objects
+      const startDate = booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : new Date(booking.startDate)) : defaultDate || new Date();
+      const endDate = booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : new Date(booking.endDate)) : defaultDate || new Date();
+
       form.reset({
         roomId: booking?.roomId || defaultRoomId || (rooms.length > 0 ? rooms[0].id : ''),
         guestName: booking?.guestName || '',
-        startDate: booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : booking.startDate) : defaultDate || new Date(),
-        endDate: booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : booking.endDate) : defaultDate || new Date(),
+        startDate: startDate,
+        endDate: endDate,
         status: booking?.status || 'booked',
       });
     }
   }, [isOpen, booking, rooms, defaultDate, defaultRoomId, form]);
 
-  const onSubmit = async (data: BookingFormValues) => {
+  const onSubmit = (data: BookingFormValues) => {
     if (rooms.length === 0) {
         toast({ title: "Error", description: "No rooms available to book. Please add rooms first.", variant: "destructive" });
         return;
     }
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 500));
-    try {
-      if (booking) {
-        updateBooking({ ...booking, ...data });
-        toast({ title: "Booking Updated", description: "The booking has been successfully updated." });
-      } else {
-        addBooking(data);
-        toast({ title: "Booking Created", description: "The new booking has been successfully created." });
+    // Simulate API call delay
+    setTimeout(() => {
+      try {
+        if (booking) {
+          updateBooking({ ...booking, ...data });
+          toast({ title: "Booking Updated", description: "The booking has been successfully updated." });
+        } else {
+          addBooking(data);
+          toast({ title: "Booking Created", description: "The new booking has been successfully created." });
+        }
+        onClose(true); 
+      } catch (error) {
+        toast({ title: "Error", description: "Failed to save booking. Please try again.", variant: "destructive" });
+        console.error("Failed to save booking:", error);
+      } finally {
+        setIsLoading(false);
       }
-      onClose(true); 
-    } catch (error) {
-      toast({ title: "Error", description: "Failed to save booking. Please try again.", variant: "destructive" });
-      console.error("Failed to save booking:", error);
-    } finally {
-      setIsLoading(false);
-    }
+    }, 500);
   };
   
   if (!isOpen) return null;
@@ -122,7 +128,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
                       ))}
                     </SelectContent>
                   </Select>
-                  {rooms.length === 0 && <FormMessage>Please add/select rooms for the current context.</FormMessage>}
+                  {rooms.length === 0 && <FormMessage>Please ensure rooms are available for the selected location/context.</FormMessage>}
                   <FormMessage />
                 </FormItem>
               )}

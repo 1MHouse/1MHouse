@@ -18,134 +18,92 @@ import { Loader2, MapPin } from 'lucide-react';
 export default function HomePage() {
   const [currentDate, setCurrentDate] = useState(() => startOfWeek(new Date(), { weekStartsOn: 1 }));
   
-  const [allRooms, setAllRooms] = useState<Room[]>([]); 
-  const [allBookings, setAllBookings] = useState<Booking[]>([]); 
+  const [allRoomsForSelectedLocation, setAllRoomsForSelectedLocation] = useState<Room[]>([]); 
+  const [allBookingsForSelectedLocation, setAllBookingsForSelectedLocation] = useState<Booking[]>([]); 
   const [allLocations, setAllLocations] = useState<Location[]>([]); 
   const [selectedLocationId, setSelectedLocationId] = useState<string | undefined>(undefined);
   
   const [isLoadingData, setIsLoadingData] = useState(true);
   const { isAdmin, isLoading: isLoadingAuth } = useAuth();
 
-  // Seeding useEffect - runs once on mount
-  useEffect(() => {
-    const attemptSeedAndLoad = async () => {
-      console.log("[page.tsx] useEffect[seed]: Attempting to seed initial data...");
-      try {
-        await seedInitialData(); // This now logs internally if it skips or seeds
-        console.log("[page.tsx] useEffect[seed]: seedInitialData call completed.");
-      } catch (error) {
-        console.error("[page.tsx] useEffect[seed]: Error during seedInitialData call:", error);
-      }
-      // After attempting to seed, load initial data to reflect any changes or existing data.
-      await loadInitialData();
-    };
-    
-    const loadInitialData = async () => {
-      setIsLoadingData(true);
-      console.log("[page.tsx] loadInitialData: Loading initial locations...");
-      try {
-        const fetchedLocations = await getLocations(); // getLocations now logs its result
-        setAllLocations(fetchedLocations);
-        console.log(`[page.tsx] loadInitialData: Successfully set ${fetchedLocations.length} locations to state.`);
-        
-        if (fetchedLocations.length > 0) {
-          // If selectedLocationId is already set and valid, keep it. 
-          // Otherwise, default to the first one.
-          const currentSelectedIsValid = fetchedLocations.find(loc => loc.id === selectedLocationId);
-          let newSelectedLocationId = selectedLocationId;
-
-          if (!currentSelectedIsValid) {
-            newSelectedLocationId = fetchedLocations[0].id;
-            console.log(`[page.tsx] loadInitialData: No valid location selected or previous selection invalid. Defaulting to first location: ${newSelectedLocationId}`);
-            // Setting selectedLocationId here will trigger the other useEffect to fetch data for this location
-            setSelectedLocationId(newSelectedLocationId); 
-          } else {
-            console.log(`[page.tsx] loadInitialData: Current selected location ${selectedLocationId} is still valid. Re-fetching its data as a precaution.`);
-            // Fetch data for the currently selected location if it hasn't changed, to ensure freshness
-             await fetchDataForLocation(selectedLocationId!);
-          }
-        } else {
-          console.log("[page.tsx] loadInitialData: No locations found after fetch attempt. Clearing rooms, bookings, and selected location.");
-          setAllRooms([]);
-          setAllBookings([]);
-          setSelectedLocationId(undefined); 
-          setIsLoadingData(false); // No data to load if no locations
-        }
-      } catch (error) {
-        console.error("[page.tsx] loadInitialData: Error fetching initial locations:", error);
-        setAllLocations([]); // Ensure state is cleared on error
-        setAllRooms([]);
-        setAllBookings([]);
-        setSelectedLocationId(undefined);
-        setIsLoadingData(false); // Stop loading on error
-      }
-    };
-
-    attemptSeedAndLoad();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once on mount
-
-  const fetchDataForLocation = useCallback(async (locationId: string) => {
-    if (!locationId) {
-      console.log("[page.tsx] fetchDataForLocation: No locationId provided, skipping fetch.");
-      setIsLoadingData(false); // Ensure loading stops if no ID
-      return;
-    }
+  // Load initial data and potentially select a default location
+  const loadInitialData = useCallback(() => {
     setIsLoadingData(true);
-    console.log(`[page.tsx] fetchDataForLocation: Fetching rooms and bookings for location: ${locationId}`);
-    try {
-      const [fetchedRooms, fetchedBookings] = await Promise.all([
-        getRooms(locationId),
-        getBookingsByLocation(locationId),
-      ]);
-      console.log(`[page.tsx] fetchDataForLocation: Fetched ${fetchedRooms.length} rooms and ${fetchedBookings.length} bookings for ${locationId}`);
-      setAllRooms(fetchedRooms);
-      setAllBookings(fetchedBookings);
-    } catch (error) {
-      console.error(`[page.tsx] fetchDataForLocation: Error fetching data for location ${locationId}:`, error);
-      setAllRooms([]);
-      setAllBookings([]);
-    } finally {
-      setIsLoadingData(false);
-      console.log(`[page.tsx] fetchDataForLocation: Finished fetching for location ${locationId}, isLoadingData: false.`);
-    }
-  }, []);
+    console.log("[page.tsx - InMem] loadInitialData: Loading initial locations...");
+    seedInitialData(); // For in-memory, this is a no-op but good for consistency
+    
+    const fetchedLocations = getLocations();
+    setAllLocations(fetchedLocations);
+    console.log(`[page.tsx - InMem] Successfully set ${fetchedLocations.length} locations to state.`);
+    
+    if (fetchedLocations.length > 0) {
+      // If selectedLocationId is not set or invalid, default to the first one.
+      const currentSelectedIsValid = selectedLocationId && fetchedLocations.find(loc => loc.id === selectedLocationId);
+      let newSelectedLocationId = selectedLocationId;
 
+      if (!currentSelectedIsValid) {
+        newSelectedLocationId = fetchedLocations[0].id;
+        console.log(`[page.tsx - InMem] No valid location selected or previous selection invalid. Defaulting to first location: ${newSelectedLocationId}`);
+        setSelectedLocationId(newSelectedLocationId); 
+        // Data for this location will be fetched by the useEffect watching selectedLocationId
+      } else {
+        console.log(`[page.tsx - InMem] Current selected location ${selectedLocationId} is still valid. Re-fetching its data.`);
+        // Re-fetch data for the currently selected location
+        const fetchedRooms = getRooms(selectedLocationId);
+        const fetchedBookings = getBookingsByLocation(selectedLocationId);
+        setAllRoomsForSelectedLocation(fetchedRooms);
+        setAllBookingsForSelectedLocation(fetchedBookings);
+      }
+    } else {
+      console.log("[page.tsx - InMem] No locations found. Clearing rooms, bookings, and selected location.");
+      setAllRoomsForSelectedLocation([]);
+      setAllBookingsForSelectedLocation([]);
+      setSelectedLocationId(undefined); 
+    }
+    setIsLoadingData(false);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedLocationId]); // Re-run if selectedLocationId changes externally to re-validate default
+
+  useEffect(() => {
+    loadInitialData();
+  }, [loadInitialData]); // Initial load
 
   // This effect specifically handles fetching data when selectedLocationId changes
   useEffect(() => {
     if (selectedLocationId) {
-      console.log(`[page.tsx] useEffect[selectedLocationId]: selectedLocationId changed to ${selectedLocationId}. Fetching data...`);
-      fetchDataForLocation(selectedLocationId);
-    } else if (allLocations.length === 0 && !isLoadingData){ // Only if locations are confirmed empty and not already loading
-      console.log("[page.tsx] useEffect[selectedLocationId]: No location selected and no locations exist. Clearing rooms and bookings.");
-      setAllRooms([]);
-      setAllBookings([]);
-      // setIsLoadingData(false); // Already handled by loadInitialData or fetchDataForLocation if selectedLocationId was cleared
+      setIsLoadingData(true);
+      console.log(`[page.tsx - InMem] useEffect[selectedLocationId]: selectedLocationId changed to ${selectedLocationId}. Fetching data...`);
+      const fetchedRooms = getRooms(selectedLocationId);
+      const fetchedBookings = getBookingsByLocation(selectedLocationId);
+      setAllRoomsForSelectedLocation(fetchedRooms);
+      setAllBookingsForSelectedLocation(fetchedBookings);
+      console.log(`[page.tsx - InMem] Fetched ${fetchedRooms.length} rooms and ${fetchedBookings.length} bookings for ${selectedLocationId}`);
+      setIsLoadingData(false);
+    } else if (allLocations.length === 0 && !isLoadingData){ 
+      console.log("[page.tsx - InMem] useEffect[selectedLocationId]: No location selected and no locations exist. Clearing rooms and bookings.");
+      setAllRoomsForSelectedLocation([]);
+      setAllBookingsForSelectedLocation([]);
     }
-  }, [selectedLocationId, fetchDataForLocation, allLocations.length, isLoadingData]);
+  }, [selectedLocationId, allLocations.length, isLoadingData]);
 
 
   const handleNavigate = (direction: "prev" | "next") => {
     setCurrentDate(current => direction === "prev" ? subWeeks(current, 1) : addWeeks(current, 1));
   };
 
-  const handleBookingUpdate = () => {
-    console.log("[page.tsx] handleBookingUpdate: Booking updated. Refetching data for current location.");
-    if (selectedLocationId) {
-      fetchDataForLocation(selectedLocationId); 
-    }
+  const handleDataUpdate = () => {
+    console.log("[page.tsx - InMem] handleDataUpdate: Data updated (e.g. booking, room, location). Refetching.");
+    // For in-memory, a full re-load might be simplest to reflect changes from admin panel
+    loadInitialData(); 
   };
 
   const handleLocationChange = (newLocationId: string) => {
-    console.log(`[page.tsx] handleLocationChange: Location changed to ${newLocationId}`);
+    console.log(`[page.tsx - InMem] handleLocationChange: Location changed to ${newLocationId}`);
     setSelectedLocationId(newLocationId); 
   };
   
-  const filteredRooms = useMemo(() => allRooms, [allRooms]);
-  const filteredBookings = useMemo(() => allBookings, [allBookings]);
-
-  // console.log(`[page.tsx] Rendering UI. isLoadingAuth: ${isLoadingAuth}, isLoadingData: ${isLoadingData}, allLocations count: ${allLocations.length}, selectedLocationId: ${selectedLocationId}`);
+  const filteredRooms = useMemo(() => allRoomsForSelectedLocation, [allRoomsForSelectedLocation]);
+  const filteredBookings = useMemo(() => allBookingsForSelectedLocation, [allBookingsForSelectedLocation]);
 
 
   if (isLoadingAuth) { 
@@ -183,13 +141,11 @@ export default function HomePage() {
                   </SelectContent>
                 </Select>
               ) : (!isLoadingData && allLocations.length === 0) ? ( 
-                // Show this only if not loading AND no locations truly exist
                 <p className="text-muted-foreground">No locations available. Admin can add locations.</p>
               ) : null }
             </CardHeader>
           </Card>
           
-          {/* General loading state for data fetching or initial setup */}
           {isLoadingData && ( 
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -197,7 +153,6 @@ export default function HomePage() {
             </div>
           )}
 
-          {/* Calendar display section - only if not loading AND a location is selected */}
           {!isLoadingData && selectedLocationId && (
             <>
               <CalendarNavigation currentDate={currentDate} onNavigate={handleNavigate} />
@@ -206,14 +161,13 @@ export default function HomePage() {
                 rooms={filteredRooms}
                 initialBookings={filteredBookings} 
                 currentDisplayDate={currentDate}
-                onBookingUpdate={handleBookingUpdate}
-                allRooms={allRooms} // This should be all rooms from all locations for admin dialogs potentially
-                allLocations={allLocations} // Pass all locations for context
+                onBookingUpdate={handleDataUpdate}
+                allRooms={getRooms()} 
+                allLocations={allLocations}
               />
             </>
           )}
           
-          {/* Message if locations exist but none selected */}
           {!isLoadingData && allLocations.length > 0 && !selectedLocationId && (
              <Card className="shadow-md text-center py-10">
                 <CardContent>
@@ -222,7 +176,6 @@ export default function HomePage() {
              </Card>
           )}
 
-          {/* Message if truly no locations configured after loading attempt */}
            {!isLoadingData && allLocations.length === 0 && ( 
              <Card className="shadow-md text-center py-10">
                 <CardContent>
@@ -245,7 +198,6 @@ export default function HomePage() {
               </CardDescription>
             </CardHeader>
             <CardContent>
-              {/* Content can be added here if needed */}
             </CardContent>
             <CardFooter>
               {isAdmin ? (
@@ -267,5 +219,3 @@ export default function HomePage() {
     </div>
   );
 }
-
-    

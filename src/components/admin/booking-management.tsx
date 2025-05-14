@@ -15,7 +15,9 @@ import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import React from 'react';
 
-const BookingFormDialog = React.lazy(() => import('./booking-form-dialog').then(module => ({ default: module.BookingFormDialog })));
+const BookingFormDialog = React.lazy(() => 
+  import('./booking-form-dialog').then(module => ({ default: module.BookingFormDialog }))
+);
 
 export function BookingManagement() {
   const [bookings, setBookings] = useState<Booking[]>([]);
@@ -29,13 +31,14 @@ export function BookingManagement() {
   const [bookingToDelete, setBookingToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(() => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300));
-    setBookings([...getBookings()]);
-    setRooms(getRooms()); // Get all rooms for admin context
-    setLocations(getLocations());
-    setIsLoading(false);
+    setTimeout(() => {
+      setBookings([...getBookings()]);
+      setRooms([...getRooms()]); 
+      setLocations([...getLocations()]);
+      setIsLoading(false);
+    }, 300);
   }, []);
 
   useEffect(() => {
@@ -62,19 +65,24 @@ export function BookingManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (bookingToDelete) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const success = deleteBookingData(bookingToDelete);
-      if (success) {
-        toast({ title: "Booking Deleted", description: "The booking has been successfully deleted." });
-        fetchData(); 
-      } else {
-        toast({ title: "Error", description: "Failed to delete booking.", variant: "destructive" });
-      }
-      setBookingToDelete(null);
+      setIsLoading(true);
+      setTimeout(() => {
+        const success = deleteBookingData(bookingToDelete);
+        if (success) {
+          toast({ title: "Booking Deleted", description: "The booking has been successfully deleted." });
+          fetchData(); 
+        } else {
+          toast({ title: "Error", description: "Failed to delete booking.", variant: "destructive" });
+        }
+        setBookingToDelete(null);
+        setIsLoading(false);
+        setIsAlertOpen(false);
+      }, 300);
+    } else {
+      setIsAlertOpen(false);
     }
-    setIsAlertOpen(false);
   };
 
   const handleFormClose = (updated: boolean) => {
@@ -95,8 +103,7 @@ export function BookingManagement() {
     };
   };
 
-
-  if (!isMounted || isLoading) {
+  if (!isMounted || (isLoading && bookings.length === 0 && rooms.length === 0 && locations.length === 0) ) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -114,13 +121,19 @@ export function BookingManagement() {
           Add Booking
         </Button>
       </div>
-      {rooms.length === 0 && (
+      {isLoading && (bookings.length > 0 || rooms.length > 0 || locations.length > 0) && ( // Subtle loader for re-fetches
+        <div className="flex items-center justify-center py-2">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+        </div>
+      )}
+      {!isLoading && rooms.length === 0 && (
          <p className="text-destructive text-center py-4">No rooms available in any location. Please add rooms first.</p>
       )}
 
-      {bookings.length === 0 && rooms.length > 0 ? (
+      {!isLoading && bookings.length === 0 && rooms.length > 0 ? (
         <p className="text-muted-foreground text-center py-4">No bookings found. Add a new booking to get started.</p>
-      ) : bookings.length > 0 && (
+      ) : !isLoading && bookings.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
@@ -141,7 +154,7 @@ export function BookingManagement() {
                   <TableCell>{roomName}</TableCell>
                   <TableCell>{locationName}</TableCell>
                   <TableCell>
-                    {format(booking.startDate, "MMM d, yyyy")} - {format(booking.endDate, "MMM d, yyyy")}
+                    {format(new Date(booking.startDate), "MMM d, yyyy")} - {format(new Date(booking.endDate), "MMM d, yyyy")}
                   </TableCell>
                   <TableCell>
                     <Badge variant={booking.status === 'booked' ? 'default' : booking.status === 'pending' ? 'secondary' : 'outline'} 
@@ -183,7 +196,7 @@ export function BookingManagement() {
             isOpen={isFormOpen}
             onClose={handleFormClose}
             booking={selectedBooking}
-            rooms={rooms} // Pass all rooms for admin context
+            rooms={rooms} 
           />
         </React.Suspense>
       )}
@@ -197,7 +210,7 @@ export function BookingManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setBookingToDelete(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
             </AlertDialogAction>

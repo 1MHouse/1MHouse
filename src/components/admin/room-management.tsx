@@ -12,7 +12,9 @@ import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const RoomFormDialog = React.lazy(() => import('./room-form-dialog').then(module => ({ default: module.RoomFormDialog })));
+const RoomFormDialog = React.lazy(() => 
+  import('./room-form-dialog').then(module => ({ default: module.RoomFormDialog }))
+);
 
 export function RoomManagement() {
   const [rooms, setRooms] = useState<Room[]>([]);
@@ -25,12 +27,13 @@ export function RoomManagement() {
   const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchData = useCallback(async () => {
+  const fetchData = useCallback(() => {
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300)); 
-    setRooms([...getRooms()]); 
-    setLocations([...getLocations()]);
-    setIsLoading(false);
+    setTimeout(() => {
+      setRooms([...getRooms()]); 
+      setLocations([...getLocations()]);
+      setIsLoading(false);
+    }, 300);
   }, []);
 
   useEffect(() => {
@@ -57,19 +60,24 @@ export function RoomManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = async () => {
+  const confirmDelete = () => {
     if (roomToDelete) {
-      await new Promise(resolve => setTimeout(resolve, 300));
-      const success = deleteRoomData(roomToDelete);
-      if (success) {
-        toast({ title: "Room Deleted", description: "The room has been successfully deleted." });
-        fetchData(); 
-      } else {
-        toast({ title: "Error Deleting Room", description: "Failed to delete room. It might be associated with bookings.", variant: "destructive" });
-      }
-      setRoomToDelete(null);
+      setIsLoading(true);
+      setTimeout(() => {
+        const success = deleteRoomData(roomToDelete);
+        if (success) {
+          toast({ title: "Room Deleted", description: "The room has been successfully deleted." });
+          fetchData(); 
+        } else {
+          toast({ title: "Error Deleting Room", description: "Failed to delete room. It might be associated with bookings.", variant: "destructive" });
+        }
+        setRoomToDelete(null);
+        setIsLoading(false);
+        setIsAlertOpen(false);
+      }, 300);
+    } else {
+      setIsAlertOpen(false);
     }
-    setIsAlertOpen(false);
   };
 
   const handleFormClose = (updated: boolean) => {
@@ -84,7 +92,7 @@ export function RoomManagement() {
     return locations.find(loc => loc.id === locationId)?.name || 'Unknown Location';
   };
 
-  if (!isMounted || isLoading) {
+  if (!isMounted || isLoading && rooms.length === 0 && locations.length === 0) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -102,13 +110,19 @@ export function RoomManagement() {
           Add Room
         </Button>
       </div>
-      {locations.length === 0 && (
+      {isLoading && (rooms.length > 0 || locations.length > 0) && ( // Subtle loader for re-fetches
+        <div className="flex items-center justify-center py-2">
+            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
+            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+        </div>
+      )}
+      {!isLoading && locations.length === 0 && (
         <p className="text-destructive text-center py-4">No locations found. Please add a location in the 'Locations' section before managing rooms.</p>
       )}
 
-      {rooms.length === 0 && locations.length > 0 ? (
+      {!isLoading && rooms.length === 0 && locations.length > 0 ? (
          <p className="text-muted-foreground text-center py-4">No rooms found for any location. Add a new room to get started.</p>
-      ) : rooms.length > 0 && (
+      ) : !isLoading && rooms.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
@@ -168,7 +182,7 @@ export function RoomManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogCancel onClick={() => setRoomToDelete(null)}>Cancel</AlertDialogCancel>
             <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
                 Delete
             </AlertDialogAction>
