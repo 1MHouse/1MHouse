@@ -1,16 +1,12 @@
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
+import { initializeApp, getApps, getApp, type FirebaseOptions } from 'firebase/app';
 import { getFirestore } from 'firebase/firestore';
 
-// Log the raw environment variable value as soon as the module is loaded
+// Log environment variables at the module scope to see what's available when this file is first imported.
 console.log('[firebase.ts] Raw NEXT_PUBLIC_FIREBASE_PROJECT_ID:', process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
-console.log('[firebase.ts] All NEXT_PUBLIC_ env vars:', Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('NEXT_PUBLIC_'))));
+console.log('[firebase.ts] All NEXT_PUBLIC_ env vars at import:', Object.fromEntries(Object.entries(process.env).filter(([key]) => key.startsWith('NEXT_PUBLIC_'))));
 
-
-// Ensure your .env.local file is in the src directory and is loaded by Next.js
-// e.g., NEXT_PUBLIC_FIREBASE_PROJECT_ID="your-project-id"
-
-const firebaseConfig = {
+const firebaseConfig: FirebaseOptions = {
   apiKey: process.env.NEXT_PUBLIC_FIREBASE_API_KEY,
   authDomain: process.env.NEXT_PUBLIC_FIREBASE_AUTH_DOMAIN,
   projectId: process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID,
@@ -19,61 +15,62 @@ const firebaseConfig = {
   appId: process.env.NEXT_PUBLIC_FIREBASE_APP_ID,
 };
 
-console.log('[firebase.ts] Firebase config object being used:', {
-  apiKey: firebaseConfig.apiKey ? '***' : undefined,
+console.log('[firebase.ts] Firebase config object being constructed:', {
+  apiKey: firebaseConfig.apiKey ? '***' : undefined, // Mask API key
   authDomain: firebaseConfig.authDomain,
-  projectId: firebaseConfig.projectId, // This is the crucial one
+  projectId: firebaseConfig.projectId,
   storageBucket: firebaseConfig.storageBucket,
   messagingSenderId: firebaseConfig.messagingSenderId,
-  appId: firebaseConfig.appId ? '***' : undefined,
+  appId: firebaseConfig.appId ? '***' : undefined, // Mask App ID
 });
 
-if (!firebaseConfig.projectId) {
-  console.error(
-    "[firebase.ts] Firebase projectId is undefined. " +
-    "Ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID is set in your environment " +
-    "(e.g., .env.local or Firebase Studio settings) " +
-    "and the Next.js development server was restarted."
-  );
-  // Not throwing error here to allow app to load for further debugging of env vars
-  // in Firebase Studio, but Firestore will NOT work.
-}
-
-// Initialize Firebase
 let app;
-if (!getApps().length) {
-  try {
-    app = initializeApp(firebaseConfig);
-    console.log('[firebase.ts] Firebase app initialized successfully.');
-  } catch (e) {
-    console.error('[firebase.ts] Error initializing Firebase app:', e);
-    console.error('[firebase.ts] Config used for initialization attempt:', {
-      apiKeyExists: !!firebaseConfig.apiKey,
-      authDomain: firebaseConfig.authDomain,
-      projectId: firebaseConfig.projectId,
-      storageBucket: firebaseConfig.storageBucket,
-      messagingSenderIdExists: !!firebaseConfig.messagingSenderId,
-      appIdExists: !!firebaseConfig.appId,
-    });
-    // Not re-throwing here to allow app to load.
-  }
-} else {
-  app = getApp();
-  console.log('[firebase.ts] Existing Firebase app retrieved.');
-}
-
 let db;
-if (app && firebaseConfig.projectId) { // Only try to get Firestore if app is initialized and projectId is present
-  try {
-    db = getFirestore(app);
-    console.log('[firebase.ts] Firestore instance obtained.');
-  } catch (e) {
-    console.error('[firebase.ts] Error obtaining Firestore instance:', e)
+
+// Client-side execution only
+if (typeof window !== 'undefined') {
+  if (!firebaseConfig.projectId) {
+    console.error(
+      "[firebase.ts] Firebase projectId is undefined. " +
+      "Ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID is set in your .env.local file (in the project root) " +
+      "and the Next.js development server was RESTARTED."
+    );
+    // We won't throw an error here to allow the app to load for debugging Studio env vars,
+    // but Firestore will not work.
+  }
+
+  if (!getApps().length) {
+    try {
+      app = initializeApp(firebaseConfig);
+      console.log('[firebase.ts] Firebase app initialized successfully.');
+    } catch (e) {
+      console.error('[firebase.ts] Error initializing Firebase app:', e);
+      console.error('[firebase.ts] Config used for initialization attempt:', {
+        apiKeyExists: !!firebaseConfig.apiKey,
+        authDomain: firebaseConfig.authDomain,
+        projectId: firebaseConfig.projectId,
+        storageBucket: firebaseConfig.storageBucket,
+        messagingSenderIdExists: !!firebaseConfig.messagingSenderId,
+        appIdExists: !!firebaseConfig.appId,
+      });
+    }
+  } else {
+    app = getApp();
+    console.log('[firebase.ts] Existing Firebase app retrieved.');
+  }
+
+  if (app && firebaseConfig.projectId) {
+    try {
+      db = getFirestore(app);
+      console.log('[firebase.ts] Firestore instance obtained.');
+    } catch (e) {
+      console.error('[firebase.ts] Error obtaining Firestore instance:', e);
+    }
+  } else {
+     console.warn('[firebase.ts] Firestore instance NOT obtained, likely due to missing projectId or app initialization failure.');
   }
 } else {
-   console.warn('[firebase.ts] Firestore instance NOT obtained due to missing app initialization or projectId.');
+  console.log('[firebase.ts] Firebase script not running in browser environment. db will be undefined.');
 }
-
 
 export { app, db };
-
