@@ -37,8 +37,8 @@ type BookingFormValues = z.infer<typeof bookingFormSchema>;
 export interface BookingFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
-  booking?: Booking; // For editing
-  rooms: Room[];
+  booking?: Booking; 
+  rooms: Room[]; // These rooms are context-dependent (all rooms in admin, location-specific in calendar)
   defaultDate?: Date;
   defaultRoomId?: string;
 }
@@ -50,18 +50,18 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingFormSchema),
     defaultValues: {
-      roomId: booking?.roomId || defaultRoomId || '',
+      roomId: booking?.roomId || defaultRoomId || (rooms.length > 0 ? rooms[0].id : ''),
       guestName: booking?.guestName || '',
       startDate: booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : booking.startDate) : defaultDate || new Date(),
       endDate: booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : booking.endDate) : defaultDate || new Date(),
       status: booking?.status || 'booked',
     },
   });
-
+  
   useEffect(() => {
     if (isOpen) {
       form.reset({
-        roomId: booking?.roomId || defaultRoomId || rooms[0]?.id || '',
+        roomId: booking?.roomId || defaultRoomId || (rooms.length > 0 ? rooms[0].id : ''),
         guestName: booking?.guestName || '',
         startDate: booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : booking.startDate) : defaultDate || new Date(),
         endDate: booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : booking.endDate) : defaultDate || new Date(),
@@ -71,8 +71,11 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
   }, [isOpen, booking, rooms, defaultDate, defaultRoomId, form]);
 
   const onSubmit = async (data: BookingFormValues) => {
+    if (rooms.length === 0) {
+        toast({ title: "Error", description: "No rooms available to book. Please add rooms first.", variant: "destructive" });
+        return;
+    }
     setIsLoading(true);
-    // Simulate API Call
     await new Promise(resolve => setTimeout(resolve, 500));
     try {
       if (booking) {
@@ -82,7 +85,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
         addBooking(data);
         toast({ title: "Booking Created", description: "The new booking has been successfully created." });
       }
-      onClose(true); // Signal that data was updated
+      onClose(true); 
     } catch (error) {
       toast({ title: "Error", description: "Failed to save booking. Please try again.", variant: "destructive" });
       console.error("Failed to save booking:", error);
@@ -107,10 +110,10 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
               render={({ field }) => (
                 <FormItem>
                   <FormLabel>Room</FormLabel>
-                  <Select onValueChange={field.onChange} defaultValue={field.value}>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} value={field.value} disabled={rooms.length === 0}>
                     <FormControl>
                       <SelectTrigger>
-                        <SelectValue placeholder="Select a room" />
+                        <SelectValue placeholder={rooms.length > 0 ? "Select a room" : "No rooms available"} />
                       </SelectTrigger>
                     </FormControl>
                     <SelectContent>
@@ -119,6 +122,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
                       ))}
                     </SelectContent>
                   </Select>
+                  {rooms.length === 0 && <FormMessage>Please add/select rooms for the current context.</FormMessage>}
                   <FormMessage />
                 </FormItem>
               )}
@@ -163,7 +167,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
                           mode="single"
                           selected={field.value}
                           onSelect={field.onChange}
-                          disabled={(date) => date < new Date("1900-01-01")} // Example past disable
+                          disabled={(date) => date < new Date("1900-01-01")} 
                           initialFocus
                         />
                       </PopoverContent>
@@ -234,7 +238,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
               <DialogClose asChild>
                 <Button type="button" variant="outline" onClick={() => onClose(false)}>Cancel</Button>
               </DialogClose>
-              <Button type="submit" disabled={isLoading}>
+              <Button type="submit" disabled={isLoading || rooms.length === 0}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {booking ? 'Save Changes' : 'Create Booking'}
               </Button>
@@ -245,5 +249,3 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
     </Dialog>
   );
 }
-
-    

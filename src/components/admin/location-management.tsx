@@ -2,8 +2,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Room, Location } from '@/lib/types';
-import { getRooms, deleteRoom as deleteRoomData, getLocations } from '@/lib/data';
+import type { Location } from '@/lib/types';
+import { getLocations, deleteLocation as deleteLocationData } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
@@ -12,83 +12,73 @@ import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react'
 import { useToast } from '@/hooks/use-toast';
 import React from 'react';
 
-const RoomFormDialog = React.lazy(() => import('./room-form-dialog').then(module => ({ default: module.RoomFormDialog })));
+const LocationFormDialog = React.lazy(() => import('./location-form-dialog').then(module => ({ default: module.LocationFormDialog })));
 
-export function RoomManagement() {
-  const [rooms, setRooms] = useState<Room[]>([]);
+export function LocationManagement() {
   const [locations, setLocations] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
   const [isAlertOpen, setIsAlertOpen] = useState(false);
-  const [selectedRoom, setSelectedRoom] = useState<Room | undefined>(undefined);
-  const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
+  const [selectedLocation, setSelectedLocation] = useState<Location | undefined>(undefined);
+  const [locationToDelete, setLocationToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchData = useCallback(async () => {
+  const fetchLocations = useCallback(async () => {
     setIsLoading(true);
     await new Promise(resolve => setTimeout(resolve, 300)); 
-    setRooms([...getRooms()]); 
     setLocations([...getLocations()]);
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     setIsMounted(true);
-    fetchData();
-  }, [fetchData]);
+    fetchLocations();
+  }, [fetchLocations]);
 
-  const handleAddRoom = () => {
-    if (locations.length === 0) {
-      toast({ title: "No Locations", description: "Please add a location before adding rooms.", variant: "destructive"});
-      return;
-    }
-    setSelectedRoom(undefined);
+  const handleAddLocation = () => {
+    setSelectedLocation(undefined);
     setIsFormOpen(true);
   };
 
-  const handleEditRoom = (room: Room) => {
-    setSelectedRoom(room);
+  const handleEditLocation = (location: Location) => {
+    setSelectedLocation(location);
     setIsFormOpen(true);
   };
 
-  const handleDeleteRoom = (roomId: string) => {
-    setRoomToDelete(roomId);
+  const handleDeleteLocation = (locationId: string) => {
+    setLocationToDelete(locationId);
     setIsAlertOpen(true);
   };
 
   const confirmDelete = async () => {
-    if (roomToDelete) {
+    if (locationToDelete) {
       await new Promise(resolve => setTimeout(resolve, 300));
-      const success = deleteRoomData(roomToDelete);
+      const success = deleteLocationData(locationToDelete);
       if (success) {
-        toast({ title: "Room Deleted", description: "The room has been successfully deleted." });
-        fetchData(); 
+        toast({ title: "Location Deleted", description: "The location has been successfully deleted." });
+        fetchLocations(); 
       } else {
-        toast({ title: "Error Deleting Room", description: "Failed to delete room. It might be associated with bookings.", variant: "destructive" });
+        toast({ title: "Error Deleting Location", description: "Failed to delete location. It might have rooms associated with it.", variant: "destructive" });
       }
-      setRoomToDelete(null);
+      setLocationToDelete(null);
     }
     setIsAlertOpen(false);
   };
 
   const handleFormClose = (updated: boolean) => {
     setIsFormOpen(false);
-    setSelectedRoom(undefined);
+    setSelectedLocation(undefined);
     if (updated) {
-      fetchData();
+      fetchLocations();
     }
-  };
-
-  const getLocationName = (locationId: string) => {
-    return locations.find(loc => loc.id === locationId)?.name || 'Unknown Location';
   };
 
   if (!isMounted || isLoading) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2">Loading rooms...</span>
+        <span className="ml-2">Loading locations...</span>
       </div>
     );
   }
@@ -96,34 +86,29 @@ export function RoomManagement() {
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h2 className="text-2xl font-semibold text-foreground">Manage Rooms</h2>
-        <Button onClick={handleAddRoom} disabled={locations.length === 0}>
+        <h2 className="text-2xl font-semibold text-foreground">Manage Locations</h2>
+        <Button onClick={handleAddLocation}>
           <PlusCircle className="mr-2 h-5 w-5" />
-          Add Room
+          Add Location
         </Button>
       </div>
-      {locations.length === 0 && (
-        <p className="text-destructive text-center py-4">No locations found. Please add a location in the 'Locations' section before managing rooms.</p>
-      )}
 
-      {rooms.length === 0 && locations.length > 0 ? (
-         <p className="text-muted-foreground text-center py-4">No rooms found for any location. Add a new room to get started.</p>
-      ) : rooms.length > 0 && (
+      {locations.length === 0 ? (
+         <p className="text-muted-foreground text-center py-4">No locations found. Add a new location to get started.</p>
+      ) : (
         <Table>
           <TableHeader>
             <TableRow>
-              <TableHead>Room Name</TableHead>
-              <TableHead>Location</TableHead>
+              <TableHead>Location Name</TableHead>
               <TableHead>ID</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rooms.map((room) => (
-              <TableRow key={room.id}>
-                <TableCell className="font-medium">{room.name}</TableCell>
-                <TableCell>{getLocationName(room.locationId)}</TableCell>
-                <TableCell className="text-muted-foreground">{room.id}</TableCell>
+            {locations.map((location) => (
+              <TableRow key={location.id}>
+                <TableCell className="font-medium">{location.name}</TableCell>
+                <TableCell className="text-muted-foreground">{location.id}</TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
@@ -132,10 +117,10 @@ export function RoomManagement() {
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditRoom(room)}>
+                      <DropdownMenuItem onClick={() => handleEditLocation(location)}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteRoom(room.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                      <DropdownMenuItem onClick={() => handleDeleteLocation(location.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
                         <Trash2 className="mr-2 h-4 w-4" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -149,11 +134,10 @@ export function RoomManagement() {
 
       {isMounted && (
         <React.Suspense fallback={<div>Loading form...</div>}>
-            <RoomFormDialog
+            <LocationFormDialog
             isOpen={isFormOpen}
             onClose={handleFormClose}
-            room={selectedRoom}
-            locations={locations}
+            location={selectedLocation}
             />
         </React.Suspense>
       )}
@@ -163,8 +147,8 @@ export function RoomManagement() {
           <AlertDialogHeader>
             <AlertDialogTitle>Are you sure?</AlertDialogTitle>
             <AlertDialogDescription>
-              This action cannot be undone. This will permanently delete the room. 
-              Ensure no bookings are associated with this room.
+              This action cannot be undone. This will permanently delete the location. 
+              Ensure no rooms are associated with this location before deleting.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

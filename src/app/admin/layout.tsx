@@ -34,7 +34,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
   if (!isAdmin) {
     // This content will be briefly shown before redirect or if redirect fails
     // It's better to show loader or nothing while redirecting
-    return null; 
+    return null;
   }
 
   return (
@@ -51,10 +51,8 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
        <footer className="py-4 text-center text-sm text-muted-foreground">
-        Admin Panel © {new Date().getFullYear()} Granada Getaway
+        Admin Panel © {new Date().getFullYear()} 1M House
       </footer>
     </div>
   );
 }
-
-    

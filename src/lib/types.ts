@@ -1,9 +1,15 @@
 
 export type BookingStatus = 'booked' | 'pending' | 'maintenance' | 'available';
 
+export interface Location {
+  id: string;
+  name: string;
+}
+
 export interface Room {
   id: string;
   name: string;
+  locationId: string;
 }
 
 export interface Booking {
@@ -21,5 +27,3 @@ export interface CalendarCellData {
   status: BookingStatus;
   booking?: Booking;
 }
-
-    

@@ -13,7 +13,7 @@ export default function AdminRoomsPage() {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>All Rooms</CardTitle>
-          <CardDescription>Manage the rooms available at Granada Getaway.</CardDescription>
+          <CardDescription>Manage the rooms available at 1M House properties.</CardDescription>
         </CardHeader>
         <CardContent>
           <RoomManagement />
@@ -22,5 +22,3 @@ export default function AdminRoomsPage() {
     </div>
   );
 }
-
-    

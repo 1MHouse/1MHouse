@@ -2,8 +2,8 @@
 "use client";
 
 import { useState, useEffect, useCallback } from 'react';
-import type { Booking, Room } from '@/lib/types';
-import { getBookings, deleteBooking as deleteBookingData, getRooms } from '@/lib/data';
+import type { Booking, Room, Location } from '@/lib/types';
+import { getBookings, deleteBooking as deleteBookingData, getRooms, getLocations } from '@/lib/data';
 import { Button } from '@/components/ui/button';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
@@ -13,14 +13,14 @@ import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react'
 import { format } from 'date-fns';
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
+import React from 'react';
 
-// Dynamic import for BookingFormDialog
 const BookingFormDialog = React.lazy(() => import('./booking-form-dialog').then(module => ({ default: module.BookingFormDialog })));
-import React from 'react'; // Required for React.lazy
 
 export function BookingManagement() {
   const [bookings, setBookings] = useState<Booking[]>([]);
   const [rooms, setRooms] = useState<Room[]>([]);
+  const [locations, setLocations] = useState<Location[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isMounted, setIsMounted] = useState(false);
   const [isFormOpen, setIsFormOpen] = useState(false);
@@ -29,21 +29,25 @@ export function BookingManagement() {
   const [bookingToDelete, setBookingToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchBookingsAndRooms = useCallback(async () => {
+  const fetchData = useCallback(async () => {
     setIsLoading(true);
-    // Simulate API calls
     await new Promise(resolve => setTimeout(resolve, 300));
     setBookings([...getBookings()]);
-    setRooms(getRooms());
+    setRooms(getRooms()); // Get all rooms for admin context
+    setLocations(getLocations());
     setIsLoading(false);
   }, []);
 
   useEffect(() => {
     setIsMounted(true);
-    fetchBookingsAndRooms();
-  }, [fetchBookingsAndRooms]);
+    fetchData();
+  }, [fetchData]);
 
   const handleAddBooking = () => {
+    if (rooms.length === 0) {
+      toast({ title: "No Rooms Available", description: "Please add rooms before creating bookings.", variant: "destructive" });
+      return;
+    }
     setSelectedBooking(undefined);
     setIsFormOpen(true);
   };
@@ -60,12 +64,11 @@ export function BookingManagement() {
 
   const confirmDelete = async () => {
     if (bookingToDelete) {
-      // Simulate API Call
       await new Promise(resolve => setTimeout(resolve, 300));
       const success = deleteBookingData(bookingToDelete);
       if (success) {
         toast({ title: "Booking Deleted", description: "The booking has been successfully deleted." });
-        fetchBookingsAndRooms(); // Refresh list
+        fetchData(); 
       } else {
         toast({ title: "Error", description: "Failed to delete booking.", variant: "destructive" });
       }
@@ -78,11 +81,20 @@ export function BookingManagement() {
     setIsFormOpen(false);
     setSelectedBooking(undefined);
     if (updated) {
-      fetchBookingsAndRooms(); // Refresh list if data was updated
+      fetchData(); 
     }
   };
 
-  const getRoomName = (roomId: string) => rooms.find(r => r.id === roomId)?.name || 'Unknown Room';
+  const getRoomInfo = (roomId: string) => {
+    const room = rooms.find(r => r.id === roomId);
+    if (!room) return { roomName: 'Unknown Room', locationName: 'Unknown Location' };
+    const location = locations.find(l => l.id === room.locationId);
+    return {
+      roomName: room.name,
+      locationName: location?.name || 'Unknown Location'
+    };
+  };
+
 
   if (!isMounted || isLoading) {
     return (
@@ -97,62 +109,70 @@ export function BookingManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold text-foreground">Manage Bookings</h2>
-        <Button onClick={handleAddBooking}>
+        <Button onClick={handleAddBooking} disabled={rooms.length === 0}>
           <PlusCircle className="mr-2 h-5 w-5" />
           Add Booking
         </Button>
       </div>
+      {rooms.length === 0 && (
+         <p className="text-destructive text-center py-4">No rooms available in any location. Please add rooms first.</p>
+      )}
 
-      {bookings.length === 0 ? (
+      {bookings.length === 0 && rooms.length > 0 ? (
         <p className="text-muted-foreground text-center py-4">No bookings found. Add a new booking to get started.</p>
-      ) : (
+      ) : bookings.length > 0 && (
         <Table>
           <TableHeader>
             <TableRow>
               <TableHead>Guest Name</TableHead>
               <TableHead>Room</TableHead>
+              <TableHead>Location</TableHead>
               <TableHead>Dates</TableHead>
               <TableHead>Status</TableHead>
               <TableHead className="text-right">Actions</TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {bookings.map((booking) => (
-              <TableRow key={booking.id}>
-                <TableCell className="font-medium">{booking.guestName}</TableCell>
-                <TableCell>{getRoomName(booking.roomId)}</TableCell>
-                <TableCell>
-                  {format(booking.startDate, "MMM d, yyyy")} - {format(booking.endDate, "MMM d, yyyy")}
-                </TableCell>
-                <TableCell>
-                  <Badge variant={booking.status === 'booked' ? 'default' : booking.status === 'pending' ? 'secondary' : 'outline'} 
-                         className={cn(
-                            booking.status === 'booked' && 'bg-primary text-primary-foreground', 
-                            booking.status === 'pending' && 'bg-yellow-400 text-black', // Using specific color for better visibility
-                            booking.status === 'maintenance' && 'bg-gray-500 text-white'
-                         )}>
-                    {booking.status}
-                  </Badge>
-                </TableCell>
-                <TableCell className="text-right">
-                  <DropdownMenu>
-                    <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
-                        <MoreHorizontal className="h-5 w-5" />
-                      </Button>
-                    </DropdownMenuTrigger>
-                    <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditBooking(booking)}>
-                        <Edit className="mr-2 h-4 w-4" /> Edit
-                      </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteBooking(booking.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
-                        <Trash2 className="mr-2 h-4 w-4" /> Delete
-                      </DropdownMenuItem>
-                    </DropdownMenuContent>
-                  </DropdownMenu>
-                </TableCell>
-              </TableRow>
-            ))}
+            {bookings.map((booking) => {
+              const { roomName, locationName } = getRoomInfo(booking.roomId);
+              return (
+                <TableRow key={booking.id}>
+                  <TableCell className="font-medium">{booking.guestName}</TableCell>
+                  <TableCell>{roomName}</TableCell>
+                  <TableCell>{locationName}</TableCell>
+                  <TableCell>
+                    {format(booking.startDate, "MMM d, yyyy")} - {format(booking.endDate, "MMM d, yyyy")}
+                  </TableCell>
+                  <TableCell>
+                    <Badge variant={booking.status === 'booked' ? 'default' : booking.status === 'pending' ? 'secondary' : 'outline'} 
+                          className={cn(
+                              booking.status === 'booked' && 'bg-primary text-primary-foreground', 
+                              booking.status === 'pending' && 'bg-yellow-400 text-black',
+                              booking.status === 'maintenance' && 'bg-gray-500 text-white'
+                          )}>
+                      {booking.status}
+                    </Badge>
+                  </TableCell>
+                  <TableCell className="text-right">
+                    <DropdownMenu>
+                      <DropdownMenuTrigger asChild>
+                        <Button variant="ghost" size="icon">
+                          <MoreHorizontal className="h-5 w-5" />
+                        </Button>
+                      </DropdownMenuTrigger>
+                      <DropdownMenuContent align="end">
+                        <DropdownMenuItem onClick={() => handleEditBooking(booking)}>
+                          <Edit className="mr-2 h-4 w-4" /> Edit
+                        </DropdownMenuItem>
+                        <DropdownMenuItem onClick={() => handleDeleteBooking(booking.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                          <Trash2 className="mr-2 h-4 w-4" /> Delete
+                        </DropdownMenuItem>
+                      </DropdownMenuContent>
+                    </DropdownMenu>
+                  </TableCell>
+                </TableRow>
+              );
+            })}
           </TableBody>
         </Table>
       )}
@@ -163,7 +183,7 @@ export function BookingManagement() {
             isOpen={isFormOpen}
             onClose={handleFormClose}
             booking={selectedBooking}
-            rooms={rooms}
+            rooms={rooms} // Pass all rooms for admin context
           />
         </React.Suspense>
       )}
@@ -178,7 +198,7 @@ export function BookingManagement() {
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className={buttonVariants({variant: "destructive"})}>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
@@ -187,11 +207,3 @@ export function BookingManagement() {
     </div>
   );
 }
-
-// Helper for AlertDialog Action button styling
-const buttonVariants = ({variant}: {variant?: "destructive" | "default"}) => {
-  if (variant === "destructive") return "bg-destructive text-destructive-foreground hover:bg-destructive/90";
-  return "";
-}
-
-    

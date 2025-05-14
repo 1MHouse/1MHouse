@@ -8,14 +8,16 @@ import * as z from 'zod';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
 import { addRoom, updateRoom } from '@/lib/data';
-import type { Room } from '@/lib/types';
+import type { Room, Location } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { Loader2 } from 'lucide-react';
 
 const roomFormSchema = z.object({
   name: z.string().min(3, "Room name must be at least 3 characters long."),
+  locationId: z.string().min(1, "Location is required."),
 });
 
 type RoomFormValues = z.infer<typeof roomFormSchema>;
@@ -24,9 +26,11 @@ interface RoomFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
   room?: Room; // For editing
+  locations: Location[];
+  defaultLocationId?: string;
 }
 
-export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
+export function RoomFormDialog({ isOpen, onClose, room, locations, defaultLocationId }: RoomFormDialogProps) {
   const { toast } = useToast();
   const [isLoading, setIsLoading] = useState(false);
 
@@ -34,6 +38,7 @@ export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
     resolver: zodResolver(roomFormSchema),
     defaultValues: {
       name: room?.name || '',
+      locationId: room?.locationId || defaultLocationId || (locations.length > 0 ? locations[0].id : ''),
     },
   });
 
@@ -41,19 +46,24 @@ export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
     if (isOpen) {
       form.reset({
         name: room?.name || '',
+        locationId: room?.locationId || defaultLocationId || (locations.length > 0 ? locations[0].id : ''),
       });
     }
-  }, [isOpen, room, form]);
+  }, [isOpen, room, locations, defaultLocationId, form]);
 
   const onSubmit = async (data: RoomFormValues) => {
+    if (locations.length === 0) {
+        toast({ title: "Error", description: "No locations available. Please add a location first.", variant: "destructive" });
+        return;
+    }
     setIsLoading(true);
-    await new Promise(resolve => setTimeout(resolve, 300)); // Simulate API call
+    await new Promise(resolve => setTimeout(resolve, 300)); 
     try {
       if (room) {
-        updateRoom({ ...room, name: data.name });
+        updateRoom({ ...room, name: data.name, locationId: data.locationId });
         toast({ title: "Room Updated", description: "The room has been successfully updated." });
       } else {
-        addRoom(data.name);
+        addRoom(data.name, data.locationId);
         toast({ title: "Room Added", description: "The new room has been successfully added." });
       }
       onClose(true);
@@ -77,6 +87,29 @@ export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
           <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4 py-4">
             <FormField
               control={form.control}
+              name="locationId"
+              render={({ field }) => (
+                <FormItem>
+                  <FormLabel>Location</FormLabel>
+                  <Select onValueChange={field.onChange} defaultValue={field.value} disabled={locations.length === 0}>
+                    <FormControl>
+                      <SelectTrigger>
+                        <SelectValue placeholder={locations.length > 0 ? "Select a location" : "No locations available"} />
+                      </SelectTrigger>
+                    </FormControl>
+                    <SelectContent>
+                      {locations.map(loc => (
+                        <SelectItem key={loc.id} value={loc.id}>{loc.name}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                  {locations.length === 0 && <FormMessage>Please add a location first.</FormMessage>}
+                  <FormMessage />
+                </FormItem>
+              )}
+            />
+            <FormField
+              control={form.control}
               name="name"
               render={({ field }) => (
                 <FormItem>
@@ -92,7 +125,7 @@ export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
               <DialogClose asChild>
                 <Button type="button" variant="outline" onClick={() => onClose(false)}>Cancel</Button>
               </DialogClose>
-              <Button type="submit" disabled={isLoading}>
+              <Button type="submit" disabled={isLoading || locations.length === 0}>
                 {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {room ? 'Save Changes' : 'Add Room'}
               </Button>
@@ -103,5 +136,3 @@ export function RoomFormDialog({ isOpen, onClose, room }: RoomFormDialogProps) {
     </Dialog>
   );
 }
-
-    

@@ -1,7 +1,7 @@
 
 "use client";
 
-import type { Room, Booking, BookingStatus, CalendarCellData } from "@/lib/types";
+import type { Room, Booking, BookingStatus, CalendarCellData, Location as LocationType } from "@/lib/types";
 import { useState, useEffect, useMemo } from "react";
 import { 
   addDays, 
@@ -9,24 +9,23 @@ import {
   format, 
   isWithinInterval, 
   isSameDay,
-  eachDayOfInterval
 } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
-import type { BookingFormDialogProps } from "@/components/admin/booking-form-dialog"; // Import the props type
 
-// Dynamically import BookingFormDialog to avoid hydration issues with Dialog
 const BookingFormDialog = React.lazy(() => import('@/components/admin/booking-form-dialog').then(module => ({ default: module.BookingFormDialog })));
 import React from "react";
 
 
 interface AvailabilityCalendarProps {
-  rooms: Room[];
-  initialBookings: Booking[];
+  rooms: Room[]; // These are pre-filtered rooms for the selected location
+  initialBookings: Booking[]; // These are pre-filtered bookings for the selected location
   currentDisplayDate: Date;
-  onBookingUpdate: () => void; // Callback to refresh data if needed
+  onBookingUpdate: () => void;
+  allRooms: Room[]; // All rooms from all locations, for the booking dialog if admin needs broader context
+  allLocations: LocationType[]; // All locations
 }
 
 const getStatusColor = (status: BookingStatus): string => {
@@ -34,17 +33,24 @@ const getStatusColor = (status: BookingStatus): string => {
     case "booked":
       return "bg-destructive/70 text-destructive-foreground";
     case "pending":
-      return "bg-yellow-400/70 text-yellow-foreground"; // Assuming yellow-foreground is defined or use black
+      return "bg-yellow-400/70 text-yellow-foreground"; 
     case "maintenance":
       return "bg-muted-foreground/70 text-muted";
     case "available":
-      return "bg-green-500/10 hover:bg-green-500/20"; // Subtle green for available
+      return "bg-green-500/10 hover:bg-green-500/20";
     default:
       return "bg-background";
   }
 };
 
-export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDate, onBookingUpdate }: AvailabilityCalendarProps) {
+export function AvailabilityCalendar({ 
+  rooms, 
+  initialBookings, 
+  currentDisplayDate, 
+  onBookingUpdate,
+  allRooms, // Note: allRooms might be used if dialog needs to show rooms beyond current location context
+  allLocations 
+}: AvailabilityCalendarProps) {
   const { isAdmin } = useAuth();
   const [bookings, setBookings] = useState<Booking[]>(initialBookings);
   const [isMounted, setIsMounted] = useState(false);
@@ -54,7 +60,7 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
 
   useEffect(() => {
     setIsMounted(true);
-    setBookings(initialBookings); // Sync with props
+    setBookings(initialBookings); 
   }, [initialBookings]);
 
   const daysToShow = 7;
@@ -66,8 +72,10 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
   }, [currentDisplayDate]);
 
   const calendarData = useMemo(() => {
+    // 'rooms' prop is already filtered for the current location by HomePage
     return rooms.map(room => {
       const row: CalendarCellData[] = weekDays.map(date => {
+        // 'bookings' prop is already filtered for the current location's rooms by HomePage
         const dayBookings = bookings.filter(
           booking =>
             booking.roomId === room.id &&
@@ -80,7 +88,6 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
         let relevantBooking: Booking | undefined = undefined;
 
         if (dayBookings.length > 0) {
-          // Prioritize status: booked > pending > maintenance
           if (dayBookings.some(b => b.status === 'booked')) {
             cellStatus = 'booked';
             relevantBooking = dayBookings.find(b => b.status === 'booked');
@@ -106,8 +113,8 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
 
   const handleCellClick = (cellData: CalendarCellData) => {
     if (!isAdmin) return;
-    setSelectedBooking(cellData.booking); // If there's a booking, prefill for editing
-    setSelectedCellData({ roomId: cellData.roomId, date: cellData.date }); // For creating a new booking
+    setSelectedBooking(cellData.booking); 
+    setSelectedCellData({ roomId: cellData.roomId, date: cellData.date });
     setDialogOpen(true);
   };
 
@@ -116,13 +123,11 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
     setSelectedBooking(undefined);
     setSelectedCellData(undefined);
     if (updated) {
-      onBookingUpdate(); // Trigger data refresh from parent
+      onBookingUpdate(); 
     }
   };
   
   if (!isMounted) {
-    // Render placeholder or skeleton while waiting for client-side mount
-    // This helps avoid hydration mismatches with dynamic imports or localStorage access
     return (
       <Card>
         <CardHeader>
@@ -133,6 +138,19 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
         </CardContent>
       </Card>
     );
+  }
+
+  if (rooms.length === 0) {
+     return (
+      <Card className="shadow-lg">
+        <CardHeader>
+          <CardTitle className="text-2xl text-primary">Room Availability</CardTitle>
+        </CardHeader>
+        <CardContent className="p-4 text-center text-muted-foreground">
+          No rooms available for this location. Admins can add rooms in the 'Admin Panel'.
+        </CardContent>
+      </Card>
+     );
   }
 
   return (
@@ -202,7 +220,7 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
             isOpen={dialogOpen}
             onClose={handleDialogClose}
             booking={selectedBooking}
-            rooms={rooms}
+            rooms={rooms} // Pass only rooms for the current location for adding/editing from calendar
             defaultDate={selectedCellData?.date}
             defaultRoomId={selectedCellData?.roomId}
           />
@@ -211,5 +229,3 @@ export function AvailabilityCalendar({ rooms, initialBookings, currentDisplayDat
     </Card>
   );
 }
-
-    

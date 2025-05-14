@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: 'Granada Getaway',
-  description: 'Manage your Granada Getaway bookings and availability.',
+  title: '1M House',
+  description: 'Manage your 1M House bookings and availability.',
 };
 
 export default function RootLayout({
@@ -31,5 +31,3 @@ export default function RootLayout({
     </html>
   );
 }
-
-    
