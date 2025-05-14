@@ -8,7 +8,7 @@ import { CalendarNavigation } from '@/components/calendar/calendar-navigation';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { getRooms, getBookingsByLocation, getLocations, seedInitialData } from '@/lib/data'; // Added seedInitialData
+import { getRooms, getBookingsByLocation, getLocations, seedInitialData } from '@/lib/data'; 
 import type { Room, Booking, Location } from '@/lib/types';
 import { useAuth } from '@/contexts/auth-context';
 import Link from 'next/link';
@@ -26,89 +26,104 @@ export default function HomePage() {
   const [isLoadingData, setIsLoadingData] = useState(true);
   const { isAdmin, isLoading: isLoadingAuth } = useAuth();
 
-  // Seeding useEffect - runs once on mount to ensure initial data if DB is empty
+  // Seeding useEffect - runs once on mount
   useEffect(() => {
-    const attemptSeed = async () => {
-      console.log("Checking if initial data seeding is required for Firestore...");
-      await seedInitialData();
-      // After attempting to seed, we might want to refresh the locations list
-      // This will be handled by the loadInitialData effect.
+    const attemptSeedAndLoad = async () => {
+      console.log("[page.tsx] useEffect[seed]: Attempting to seed initial data...");
+      try {
+        await seedInitialData(); // This now logs internally if it skips or seeds
+        console.log("[page.tsx] useEffect[seed]: seedInitialData call completed.");
+      } catch (error) {
+        console.error("[page.tsx] useEffect[seed]: Error during seedInitialData call:", error);
+      }
+      // After attempting to seed, load initial data to reflect any changes or existing data.
+      await loadInitialData();
     };
-    attemptSeed();
-  }, []);
+    
+    const loadInitialData = async () => {
+      setIsLoadingData(true);
+      console.log("[page.tsx] loadInitialData: Loading initial locations...");
+      try {
+        const fetchedLocations = await getLocations(); // getLocations now logs its result
+        setAllLocations(fetchedLocations);
+        console.log(`[page.tsx] loadInitialData: Successfully set ${fetchedLocations.length} locations to state.`);
+        
+        if (fetchedLocations.length > 0) {
+          // If selectedLocationId is already set and valid, keep it. 
+          // Otherwise, default to the first one.
+          const currentSelectedIsValid = fetchedLocations.find(loc => loc.id === selectedLocationId);
+          let newSelectedLocationId = selectedLocationId;
 
+          if (!currentSelectedIsValid) {
+            newSelectedLocationId = fetchedLocations[0].id;
+            console.log(`[page.tsx] loadInitialData: No valid location selected or previous selection invalid. Defaulting to first location: ${newSelectedLocationId}`);
+            // Setting selectedLocationId here will trigger the other useEffect to fetch data for this location
+            setSelectedLocationId(newSelectedLocationId); 
+          } else {
+            console.log(`[page.tsx] loadInitialData: Current selected location ${selectedLocationId} is still valid. Re-fetching its data as a precaution.`);
+            // Fetch data for the currently selected location if it hasn't changed, to ensure freshness
+             await fetchDataForLocation(selectedLocationId!);
+          }
+        } else {
+          console.log("[page.tsx] loadInitialData: No locations found after fetch attempt. Clearing rooms, bookings, and selected location.");
+          setAllRooms([]);
+          setAllBookings([]);
+          setSelectedLocationId(undefined); 
+          setIsLoadingData(false); // No data to load if no locations
+        }
+      } catch (error) {
+        console.error("[page.tsx] loadInitialData: Error fetching initial locations:", error);
+        setAllLocations([]); // Ensure state is cleared on error
+        setAllRooms([]);
+        setAllBookings([]);
+        setSelectedLocationId(undefined);
+        setIsLoadingData(false); // Stop loading on error
+      }
+    };
+
+    attemptSeedAndLoad();
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // Runs once on mount
 
   const fetchDataForLocation = useCallback(async (locationId: string) => {
-    if (!locationId) return;
+    if (!locationId) {
+      console.log("[page.tsx] fetchDataForLocation: No locationId provided, skipping fetch.");
+      setIsLoadingData(false); // Ensure loading stops if no ID
+      return;
+    }
     setIsLoadingData(true);
+    console.log(`[page.tsx] fetchDataForLocation: Fetching rooms and bookings for location: ${locationId}`);
     try {
-      console.log(`Fetching rooms and bookings for location: ${locationId}`);
       const [fetchedRooms, fetchedBookings] = await Promise.all([
         getRooms(locationId),
         getBookingsByLocation(locationId),
       ]);
-      console.log(`Fetched ${fetchedRooms.length} rooms and ${fetchedBookings.length} bookings for ${locationId}`);
+      console.log(`[page.tsx] fetchDataForLocation: Fetched ${fetchedRooms.length} rooms and ${fetchedBookings.length} bookings for ${locationId}`);
       setAllRooms(fetchedRooms);
       setAllBookings(fetchedBookings);
     } catch (error) {
-      console.error("Error fetching data for location:", error);
+      console.error(`[page.tsx] fetchDataForLocation: Error fetching data for location ${locationId}:`, error);
       setAllRooms([]);
       setAllBookings([]);
     } finally {
       setIsLoadingData(false);
+      console.log(`[page.tsx] fetchDataForLocation: Finished fetching for location ${locationId}, isLoadingData: false.`);
     }
   }, []);
 
-  useEffect(() => {
-    const loadInitialData = async () => {
-      setIsLoadingData(true);
-      console.log("Loading initial locations...");
-      try {
-        const fetchedLocations = await getLocations();
-        setAllLocations(fetchedLocations);
-        console.log(`Fetched ${fetchedLocations.length} locations.`);
-        if (fetchedLocations.length > 0) {
-          // If selectedLocationId is already set and valid, keep it. Otherwise, default to the first one.
-          const currentSelectedLocation = fetchedLocations.find(loc => loc.id === selectedLocationId) 
-            ? selectedLocationId 
-            : fetchedLocations[0].id;
-
-          if (currentSelectedLocation !== selectedLocationId) {
-            setSelectedLocationId(currentSelectedLocation); // This will trigger data fetch via the other useEffect
-          } else {
-             // If selectedLocationId didn't change but we need to fetch (e.g. initial load)
-            await fetchDataForLocation(currentSelectedLocation!);
-          }
-        } else {
-          console.log("No locations found after initial load attempt.");
-          setAllRooms([]);
-          setAllBookings([]);
-          setSelectedLocationId(undefined); // Ensure no location is selected
-          setIsLoadingData(false);
-        }
-      } catch (error) {
-        console.error("Error fetching initial locations:", error);
-        setAllLocations([]);
-        setAllRooms([]);
-        setAllBookings([]);
-        setIsLoadingData(false);
-      }
-    };
-    loadInitialData();
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Run once on mount to load locations
 
   // This effect specifically handles fetching data when selectedLocationId changes
   useEffect(() => {
     if (selectedLocationId) {
+      console.log(`[page.tsx] useEffect[selectedLocationId]: selectedLocationId changed to ${selectedLocationId}. Fetching data...`);
       fetchDataForLocation(selectedLocationId);
-    } else {
-      // If no location is selected (e.g., after all locations are deleted)
+    } else if (allLocations.length === 0 && !isLoadingData){ // Only if locations are confirmed empty and not already loading
+      console.log("[page.tsx] useEffect[selectedLocationId]: No location selected and no locations exist. Clearing rooms and bookings.");
       setAllRooms([]);
       setAllBookings([]);
-      setIsLoadingData(false); // Not loading data for any specific location
+      // setIsLoadingData(false); // Already handled by loadInitialData or fetchDataForLocation if selectedLocationId was cleared
     }
-  }, [selectedLocationId, fetchDataForLocation]);
+  }, [selectedLocationId, fetchDataForLocation, allLocations.length, isLoadingData]);
 
 
   const handleNavigate = (direction: "prev" | "next") => {
@@ -116,19 +131,24 @@ export default function HomePage() {
   };
 
   const handleBookingUpdate = () => {
+    console.log("[page.tsx] handleBookingUpdate: Booking updated. Refetching data for current location.");
     if (selectedLocationId) {
       fetchDataForLocation(selectedLocationId); 
     }
   };
 
   const handleLocationChange = (newLocationId: string) => {
+    console.log(`[page.tsx] handleLocationChange: Location changed to ${newLocationId}`);
     setSelectedLocationId(newLocationId); 
   };
   
   const filteredRooms = useMemo(() => allRooms, [allRooms]);
   const filteredBookings = useMemo(() => allBookings, [allBookings]);
 
-  if (isLoadingAuth) { // Prioritize auth loading
+  // console.log(`[page.tsx] Rendering UI. isLoadingAuth: ${isLoadingAuth}, isLoadingData: ${isLoadingData}, allLocations count: ${allLocations.length}, selectedLocationId: ${selectedLocationId}`);
+
+
+  if (isLoadingAuth) { 
     return (
       <div className="flex flex-col min-h-screen">
         <AppHeader />
@@ -139,7 +159,6 @@ export default function HomePage() {
       </div>
     );
   }
-
 
   return (
     <div className="flex flex-col min-h-screen bg-secondary/50">
@@ -163,19 +182,22 @@ export default function HomePage() {
                     ))}
                   </SelectContent>
                 </Select>
-              ) : !isLoadingData ? ( // Only show "No locations" if not loading and locations array is empty
+              ) : (!isLoadingData && allLocations.length === 0) ? ( 
+                // Show this only if not loading AND no locations truly exist
                 <p className="text-muted-foreground">No locations available. Admin can add locations.</p>
               ) : null }
             </CardHeader>
           </Card>
           
-          {isLoadingData && ( // General loading state for data fetching activities
+          {/* General loading state for data fetching or initial setup */}
+          {isLoadingData && ( 
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
-              <span className="ml-2">Loading calendar data...</span>
+              <span className="ml-2">Loading data...</span>
             </div>
           )}
 
+          {/* Calendar display section - only if not loading AND a location is selected */}
           {!isLoadingData && selectedLocationId && (
             <>
               <CalendarNavigation currentDate={currentDate} onNavigate={handleNavigate} />
@@ -185,12 +207,13 @@ export default function HomePage() {
                 initialBookings={filteredBookings} 
                 currentDisplayDate={currentDate}
                 onBookingUpdate={handleBookingUpdate}
-                allRooms={allRooms} 
-                allLocations={allLocations} 
+                allRooms={allRooms} // This should be all rooms from all locations for admin dialogs potentially
+                allLocations={allLocations} // Pass all locations for context
               />
             </>
           )}
           
+          {/* Message if locations exist but none selected */}
           {!isLoadingData && allLocations.length > 0 && !selectedLocationId && (
              <Card className="shadow-md text-center py-10">
                 <CardContent>
@@ -198,7 +221,9 @@ export default function HomePage() {
                 </CardContent>
              </Card>
           )}
-           {!isLoadingData && allLocations.length === 0 && ( // This state implies initial load finished, and no locations were found/seeded
+
+          {/* Message if truly no locations configured after loading attempt */}
+           {!isLoadingData && allLocations.length === 0 && ( 
              <Card className="shadow-md text-center py-10">
                 <CardContent>
                     <p className="text-destructive">No locations configured for 1M House.</p>
@@ -242,3 +267,5 @@ export default function HomePage() {
     </div>
   );
 }
+
+    
