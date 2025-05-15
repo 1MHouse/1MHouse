@@ -51,7 +51,7 @@ export default function AdminLayout({ children }: { children: ReactNode }) {
         </main>
       </div>
        <footer className="py-4 text-center text-sm text-muted-foreground">
-        Admin Panel © {new Date().getFullYear()} 1M House
+        Admin Panel © {new Date().getFullYear()} 1M International
       </footer>
     </div>
   );

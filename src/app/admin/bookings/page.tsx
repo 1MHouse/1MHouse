@@ -13,7 +13,7 @@ export default function AdminBookingsPage() {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>All Bookings</CardTitle>
-          <CardDescription>View, create, edit, and delete bookings for 1M House.</CardDescription>
+          <CardDescription>View, create, edit, and delete bookings for 1M International.</CardDescription>
         </CardHeader>
         <CardContent>
           <BookingManagement />

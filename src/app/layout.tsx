@@ -11,8 +11,8 @@ const inter = Inter({
 });
 
 export const metadata: Metadata = {
-  title: '1M House',
-  description: 'Manage your 1M House bookings and availability.',
+  title: '1M International',
+  description: 'Manage your 1M International bookings and availability.',
 };
 
 export default function RootLayout({

@@ -8,7 +8,7 @@ export function AppHeader() {
       <div className="container mx-auto px-4 h-16 flex items-center justify-between">
         <Link href="/" className="flex items-center gap-2 text-lg font-semibold text-primary hover:opacity-80 transition-opacity">
           <Hotel className="h-6 w-6" />
-          <span>1M House</span>
+          <span>1M International</span>
         </Link>
         {/* Placeholder for potential future navigation or user actions */}
       </div>

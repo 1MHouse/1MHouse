@@ -13,7 +13,7 @@ export default function AdminLocationsPage() {
       <Card className="shadow-lg">
         <CardHeader>
           <CardTitle>All Locations</CardTitle>
-          <CardDescription>Manage the property locations for 1M House.</CardDescription>
+          <CardDescription>Manage the property locations for 1M International.</CardDescription>
         </CardHeader>
         <CardContent>
           <LocationManagement />
