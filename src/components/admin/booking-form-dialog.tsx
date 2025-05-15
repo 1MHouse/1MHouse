@@ -18,8 +18,22 @@ import { format, parseISO } from 'date-fns';
 import { CalendarIcon, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
+import type { Timestamp } from 'firebase/firestore'; // Import Timestamp
 
 const bookingStatusOptions = ['booked', 'pending', 'maintenance'] as const;
+
+// Helper to convert Firestore Timestamp to Date if necessary
+const ensureDateObject = (date: Date | Timestamp | undefined | string): Date | undefined => {
+  if (!date) return undefined;
+  if (date instanceof Date) return date;
+  if (typeof date === 'string') return parseISO(date); // Handle ISO string
+  // Assuming it's a Firestore Timestamp-like object if it has toDate
+  if (typeof (date as Timestamp).toDate === 'function') {
+    return (date as Timestamp).toDate();
+  }
+  return new Date(date as any); // Fallback, might not be ideal
+};
+
 
 const bookingFormSchema = z.object({
   roomId: z.string().min(1, "Room selection is required."),
@@ -45,65 +59,75 @@ export interface BookingFormDialogProps {
 
 export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate, defaultRoomId }: BookingFormDialogProps) {
   const { toast } = useToast();
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingFormSchema),
     defaultValues: {
       roomId: booking?.roomId || defaultRoomId || (rooms.length > 0 ? rooms[0].id : ''),
       guestName: booking?.guestName || '',
-      startDate: booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : booking.startDate) : defaultDate || new Date(),
-      endDate: booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : booking.endDate) : defaultDate || new Date(),
+      startDate: ensureDateObject(booking?.startDate) || defaultDate || new Date(),
+      endDate: ensureDateObject(booking?.endDate) || defaultDate || new Date(),
       status: booking?.status || 'booked',
     },
   });
   
   useEffect(() => {
     if (isOpen) {
-      // Ensure dates are actual Date objects
-      const startDate = booking?.startDate ? (typeof booking.startDate === 'string' ? parseISO(booking.startDate) : new Date(booking.startDate)) : defaultDate || new Date();
-      const endDate = booking?.endDate ? (typeof booking.endDate === 'string' ? parseISO(booking.endDate) : new Date(booking.endDate)) : defaultDate || new Date();
-
       form.reset({
         roomId: booking?.roomId || defaultRoomId || (rooms.length > 0 ? rooms[0].id : ''),
         guestName: booking?.guestName || '',
-        startDate: startDate,
-        endDate: endDate,
+        startDate: ensureDateObject(booking?.startDate) || defaultDate || new Date(),
+        endDate: ensureDateObject(booking?.endDate) || defaultDate || new Date(),
         status: booking?.status || 'booked',
       });
+      setIsSubmitting(false);
     }
   }, [isOpen, booking, rooms, defaultDate, defaultRoomId, form]);
 
-  const onSubmit = (data: BookingFormValues) => {
+  const onSubmit = async (data: BookingFormValues) => {
     if (rooms.length === 0) {
         toast({ title: "Error", description: "No rooms available to book. Please add rooms first.", variant: "destructive" });
         return;
     }
-    setIsLoading(true);
-    // Simulate API call delay
-    setTimeout(() => {
-      try {
-        if (booking) {
-          updateBooking({ ...booking, ...data });
+    setIsSubmitting(true);
+    try {
+      if (booking) {
+        // Ensure dates are Date objects for updateBooking
+        const bookingToUpdate: Booking = {
+          ...booking,
+          ...data,
+          startDate: data.startDate, // Already a Date from form
+          endDate: data.endDate,     // Already a Date from form
+        };
+        const success = await updateBooking(bookingToUpdate);
+        if (success) {
           toast({ title: "Booking Updated", description: "The booking has been successfully updated." });
+          onClose(true); 
         } else {
-          addBooking(data);
-          toast({ title: "Booking Created", description: "The new booking has been successfully created." });
+          toast({ title: "Error", description: "Failed to update booking. Please try again.", variant: "destructive" });
         }
-        onClose(true); 
-      } catch (error) {
-        toast({ title: "Error", description: "Failed to save booking. Please try again.", variant: "destructive" });
-        console.error("Failed to save booking:", error);
-      } finally {
-        setIsLoading(false);
+      } else {
+        const newBooking = await addBooking(data); // addBooking expects Date objects from form
+        if (newBooking) {
+          toast({ title: "Booking Created", description: "The new booking has been successfully created." });
+          onClose(true); 
+        } else {
+          toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
+        }
       }
-    }, 500);
+    } catch (error) {
+      toast({ title: "Error", description: "An unexpected error occurred. Please try again.", variant: "destructive" });
+      console.error("Failed to save booking:", error);
+    } finally {
+      setIsSubmitting(false);
+    }
   };
   
   if (!isOpen) return null;
 
   return (
-    <Dialog open={isOpen} onOpenChange={(open) => !open && onClose(false)}>
+    <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(false); }}>
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle className="text-primary">{booking ? 'Edit Booking' : 'Add New Booking'}</DialogTitle>
@@ -242,10 +266,10 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
             />
             <DialogFooter>
               <DialogClose asChild>
-                <Button type="button" variant="outline" onClick={() => onClose(false)}>Cancel</Button>
+                <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={isSubmitting}>Cancel</Button>
               </DialogClose>
-              <Button type="submit" disabled={isLoading || rooms.length === 0}>
-                {isLoading && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              <Button type="submit" disabled={isSubmitting || rooms.length === 0}>
+                {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                 {booking ? 'Save Changes' : 'Create Booking'}
               </Button>
             </DialogFooter>

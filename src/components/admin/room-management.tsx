@@ -27,14 +27,24 @@ export function RoomManagement() {
   const [roomToDelete, setRoomToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback(async () => {
+    console.log("[RoomManagement] fetchData: Fetching rooms and locations...");
     setIsLoading(true);
-    setTimeout(() => {
-      setRooms([...getRooms()]); 
-      setLocations([...getLocations()]);
+    try {
+      const fetchedRooms = await getRooms(); 
+      const fetchedLocations = await getLocations();
+      setRooms(fetchedRooms);
+      setLocations(fetchedLocations);
+      console.log(`[RoomManagement] fetchData: Fetched ${fetchedRooms.length} rooms and ${fetchedLocations.length} locations.`);
+    } catch (error) {
+      console.error("[RoomManagement] fetchData: Error fetching data:", error);
+      toast({ title: "Error", description: "Failed to fetch rooms or locations.", variant: "destructive" });
+      setRooms([]);
+      setLocations([]);
+    } finally {
       setIsLoading(false);
-    }, 300);
-  }, []);
+    }
+  }, [toast]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -60,21 +70,25 @@ export function RoomManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (roomToDelete) {
-      setIsLoading(true);
-      setTimeout(() => {
-        const success = deleteRoomData(roomToDelete);
+      setIsLoading(true); // Indicate loading for the delete operation
+      try {
+        const success = await deleteRoomData(roomToDelete);
         if (success) {
           toast({ title: "Room Deleted", description: "The room has been successfully deleted." });
           fetchData(); 
         } else {
-          toast({ title: "Error Deleting Room", description: "Failed to delete room. It might be associated with bookings.", variant: "destructive" });
+          toast({ title: "Error Deleting Room", description: "Failed to delete room. It might be associated with bookings or another error occurred.", variant: "destructive" });
         }
+      } catch (error) {
+        console.error("[RoomManagement] confirmDelete: Error deleting room:", error);
+        toast({ title: "Error", description: "An unexpected error occurred while deleting the room.", variant: "destructive" });
+      } finally {
         setRoomToDelete(null);
-        setIsLoading(false);
+        setIsLoading(false); 
         setIsAlertOpen(false);
-      }, 300);
+      }
     } else {
       setIsAlertOpen(false);
     }
@@ -92,7 +106,7 @@ export function RoomManagement() {
     return locations.find(loc => loc.id === locationId)?.name || 'Unknown Location';
   };
 
-  if (!isMounted || isLoading && rooms.length === 0 && locations.length === 0) {
+  if (!isMounted || (isLoading && rooms.length === 0 && locations.length === 0)) {
     return (
       <div className="flex items-center justify-center py-10">
         <Loader2 className="h-8 w-8 animate-spin text-primary" />
@@ -105,15 +119,15 @@ export function RoomManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold text-foreground">Manage Rooms</h2>
-        <Button onClick={handleAddRoom} disabled={locations.length === 0}>
+        <Button onClick={handleAddRoom} disabled={locations.length === 0 || isLoading}>
           <PlusCircle className="mr-2 h-5 w-5" />
           Add Room
         </Button>
       </div>
-      {isLoading && (rooms.length > 0 || locations.length > 0) && ( // Subtle loader for re-fetches
-        <div className="flex items-center justify-center py-2">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+      {isLoading && (rooms.length > 0 || locations.length > 0) && ( 
+        <div className="flex items-center justify-start py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span>Refreshing data...</span>
         </div>
       )}
       {!isLoading && locations.length === 0 && (
@@ -137,19 +151,19 @@ export function RoomManagement() {
               <TableRow key={room.id}>
                 <TableCell className="font-medium">{room.name}</TableCell>
                 <TableCell>{getLocationName(room.locationId)}</TableCell>
-                <TableCell className="text-muted-foreground">{room.id}</TableCell>
+                <TableCell className="text-muted-foreground text-xs">{room.id}</TableCell>
                 <TableCell className="text-right">
                   <DropdownMenu>
                     <DropdownMenuTrigger asChild>
-                      <Button variant="ghost" size="icon">
+                      <Button variant="ghost" size="icon" disabled={isLoading}>
                         <MoreHorizontal className="h-5 w-5" />
                       </Button>
                     </DropdownMenuTrigger>
                     <DropdownMenuContent align="end">
-                      <DropdownMenuItem onClick={() => handleEditRoom(room)}>
+                      <DropdownMenuItem onClick={() => handleEditRoom(room)} disabled={isLoading}>
                         <Edit className="mr-2 h-4 w-4" /> Edit
                       </DropdownMenuItem>
-                      <DropdownMenuItem onClick={() => handleDeleteRoom(room.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                      <DropdownMenuItem onClick={() => handleDeleteRoom(room.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isLoading}>
                         <Trash2 className="mr-2 h-4 w-4" /> Delete
                       </DropdownMenuItem>
                     </DropdownMenuContent>
@@ -182,8 +196,9 @@ export function RoomManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setRoomToDelete(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel onClick={() => {setRoomToDelete(null); setIsAlertOpen(false);}} disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isLoading}>
+                {isLoading && roomToDelete ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
                 Delete
             </AlertDialogAction>
           </AlertDialogFooter>

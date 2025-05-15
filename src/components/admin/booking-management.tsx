@@ -10,7 +10,7 @@ import { Badge } from '@/components/ui/badge';
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { MoreHorizontal, PlusCircle, Trash2, Edit, Loader2 } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns'; // parseISO added for safety
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 import React from 'react';
@@ -31,15 +31,33 @@ export function BookingManagement() {
   const [bookingToDelete, setBookingToDelete] = useState<string | null>(null);
   const { toast } = useToast();
 
-  const fetchData = useCallback(() => {
+  const fetchData = useCallback(async () => {
+    console.log("[BookingManagement] fetchData: Fetching bookings, rooms, and locations...");
     setIsLoading(true);
-    setTimeout(() => {
-      setBookings([...getBookings()]);
-      setRooms([...getRooms()]); 
-      setLocations([...getLocations()]);
+    try {
+      const [fetchedBookings, fetchedRooms, fetchedLocations] = await Promise.all([
+        getBookings(),
+        getRooms(), 
+        getLocations()
+      ]);
+      setBookings(fetchedBookings.map(b => ({ // Ensure dates are Date objects
+        ...b,
+        startDate: b.startDate instanceof Date ? b.startDate : parseISO(b.startDate as unknown as string),
+        endDate: b.endDate instanceof Date ? b.endDate : parseISO(b.endDate as unknown as string),
+      })));
+      setRooms(fetchedRooms);
+      setLocations(fetchedLocations);
+      console.log(`[BookingManagement] fetchData: Fetched ${fetchedBookings.length} bookings, ${fetchedRooms.length} rooms, ${fetchedLocations.length} locations.`);
+    } catch (error) {
+      console.error("[BookingManagement] fetchData: Error fetching data:", error);
+      toast({ title: "Error", description: "Failed to fetch necessary data.", variant: "destructive" });
+      setBookings([]);
+      setRooms([]);
+      setLocations([]);
+    } finally {
       setIsLoading(false);
-    }, 300);
-  }, []);
+    }
+  }, [toast]);
 
   useEffect(() => {
     setIsMounted(true);
@@ -65,21 +83,25 @@ export function BookingManagement() {
     setIsAlertOpen(true);
   };
 
-  const confirmDelete = () => {
+  const confirmDelete = async () => {
     if (bookingToDelete) {
-      setIsLoading(true);
-      setTimeout(() => {
-        const success = deleteBookingData(bookingToDelete);
+      setIsLoading(true); // Indicate loading for the delete operation
+      try {
+        const success = await deleteBookingData(bookingToDelete);
         if (success) {
           toast({ title: "Booking Deleted", description: "The booking has been successfully deleted." });
           fetchData(); 
         } else {
           toast({ title: "Error", description: "Failed to delete booking.", variant: "destructive" });
         }
+      } catch (error) {
+        console.error("[BookingManagement] confirmDelete: Error deleting booking:", error);
+        toast({ title: "Error", description: "An unexpected error occurred while deleting the booking.", variant: "destructive" });
+      } finally {
         setBookingToDelete(null);
-        setIsLoading(false);
+        setIsLoading(false); 
         setIsAlertOpen(false);
-      }, 300);
+      }
     } else {
       setIsAlertOpen(false);
     }
@@ -116,19 +138,19 @@ export function BookingManagement() {
     <div className="space-y-6">
       <div className="flex items-center justify-between">
         <h2 className="text-2xl font-semibold text-foreground">Manage Bookings</h2>
-        <Button onClick={handleAddBooking} disabled={rooms.length === 0}>
+        <Button onClick={handleAddBooking} disabled={rooms.length === 0 || isLoading}>
           <PlusCircle className="mr-2 h-5 w-5" />
           Add Booking
         </Button>
       </div>
-      {isLoading && (bookings.length > 0 || rooms.length > 0 || locations.length > 0) && ( // Subtle loader for re-fetches
-        <div className="flex items-center justify-center py-2">
-            <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />
-            <span className="ml-2 text-sm text-muted-foreground">Refreshing...</span>
+      {isLoading && (bookings.length > 0 || rooms.length > 0 || locations.length > 0) && ( 
+        <div className="flex items-center justify-start py-2 text-sm text-muted-foreground">
+            <Loader2 className="h-5 w-5 animate-spin mr-2" />
+            <span>Refreshing data...</span>
         </div>
       )}
       {!isLoading && rooms.length === 0 && (
-         <p className="text-destructive text-center py-4">No rooms available in any location. Please add rooms first.</p>
+         <p className="text-destructive text-center py-4">No rooms available in any location. Please add rooms first in the 'Rooms' section.</p>
       )}
 
       {!isLoading && bookings.length === 0 && rooms.length > 0 ? (
@@ -148,13 +170,15 @@ export function BookingManagement() {
           <TableBody>
             {bookings.map((booking) => {
               const { roomName, locationName } = getRoomInfo(booking.roomId);
+              const startDate = booking.startDate instanceof Date ? booking.startDate : parseISO(booking.startDate as unknown as string);
+              const endDate = booking.endDate instanceof Date ? booking.endDate : parseISO(booking.endDate as unknown as string);
               return (
                 <TableRow key={booking.id}>
                   <TableCell className="font-medium">{booking.guestName}</TableCell>
                   <TableCell>{roomName}</TableCell>
                   <TableCell>{locationName}</TableCell>
                   <TableCell>
-                    {format(new Date(booking.startDate), "MMM d, yyyy")} - {format(new Date(booking.endDate), "MMM d, yyyy")}
+                    {format(startDate, "MMM d, yyyy")} - {format(endDate, "MMM d, yyyy")}
                   </TableCell>
                   <TableCell>
                     <Badge variant={booking.status === 'booked' ? 'default' : booking.status === 'pending' ? 'secondary' : 'outline'} 
@@ -169,15 +193,15 @@ export function BookingManagement() {
                   <TableCell className="text-right">
                     <DropdownMenu>
                       <DropdownMenuTrigger asChild>
-                        <Button variant="ghost" size="icon">
+                        <Button variant="ghost" size="icon" disabled={isLoading}>
                           <MoreHorizontal className="h-5 w-5" />
                         </Button>
                       </DropdownMenuTrigger>
                       <DropdownMenuContent align="end">
-                        <DropdownMenuItem onClick={() => handleEditBooking(booking)}>
+                        <DropdownMenuItem onClick={() => handleEditBooking(booking)} disabled={isLoading}>
                           <Edit className="mr-2 h-4 w-4" /> Edit
                         </DropdownMenuItem>
-                        <DropdownMenuItem onClick={() => handleDeleteBooking(booking.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10">
+                        <DropdownMenuItem onClick={() => handleDeleteBooking(booking.id)} className="text-destructive focus:text-destructive focus:bg-destructive/10" disabled={isLoading}>
                           <Trash2 className="mr-2 h-4 w-4" /> Delete
                         </DropdownMenuItem>
                       </DropdownMenuContent>
@@ -210,8 +234,9 @@ export function BookingManagement() {
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setBookingToDelete(null)}>Cancel</AlertDialogCancel>
-            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90">
+            <AlertDialogCancel onClick={() => {setBookingToDelete(null); setIsAlertOpen(false);}} disabled={isLoading}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={confirmDelete} className="bg-destructive text-destructive-foreground hover:bg-destructive/90" disabled={isLoading}>
+              {isLoading && bookingToDelete ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
               Delete
             </AlertDialogAction>
           </AlertDialogFooter>
