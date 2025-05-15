@@ -4,21 +4,21 @@ import type { Timestamp } from 'firebase/firestore';
 export type BookingStatus = 'booked' | 'pending' | 'maintenance' | 'available';
 
 export interface Location {
-  id: string; 
+  id: string;
   name: string;
 }
 
 export interface Room {
-  id: string; 
+  id: string;
   name: string;
   locationId: string;
 }
 
 export interface Booking {
-  id: string; 
+  id: string;
   roomId: string;
-  startDate: Date | Timestamp; // Allow both for easier handling before/after Firestore
-  endDate: Date | Timestamp;   // Allow both for easier handling before/after Firestore
+  startDate: Date; // Changed from Date | Timestamp
+  endDate: Date;   // Changed from Date | Timestamp
   guestName: string;
   status: Exclude<BookingStatus, 'available'>;
 }
