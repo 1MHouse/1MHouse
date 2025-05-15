@@ -6,28 +6,31 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter, DialogClose } from '@/components/ui/dialog';
-// AlertDialog might not be needed if overlap detection is removed or simplified
-// import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle } from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Calendar } from '@/components/ui/calendar';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '@/components/ui/form';
-import { addBooking, updateBooking } from '@/lib/data'; // getBookingsByRoomId removed for revert
+import { addBooking, updateBooking, getBookingsByRoomId } from '@/lib/data';
 import type { Booking, Room } from '@/lib/types';
-import { format, parseISO } from 'date-fns'; // startOfDay, isWithinInterval might not be needed now
-import { CalendarIcon, Loader2 } from 'lucide-react'; // AlertTriangle might not be needed
+import { format, parseISO, isWithinInterval, startOfDay } from 'date-fns';
+import { CalendarIcon, Loader2, AlertTriangle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useToast } from '@/hooks/use-toast';
-import type { Timestamp } from 'firebase/firestore'; 
+import type { Timestamp } from 'firebase/firestore';
 
 const bookingStatusOptions = ['booked', 'pending', 'maintenance'] as const;
 
 const ensureDateObject = (date: Date | Timestamp | undefined | string): Date | undefined => {
   if (!date) return undefined;
   if (date instanceof Date) return date;
-  if (typeof date === 'string') return parseISO(date);
+  if (typeof date === 'string') {
+    try {
+      return parseISO(date);
+    } catch (e) { /* ignore parse error, try Date constructor */ }
+  }
   if (typeof (date as Timestamp).toDate === 'function') {
     return (date as Timestamp).toDate();
   }
@@ -54,8 +57,8 @@ type BookingFormValues = z.infer<typeof bookingFormSchema>;
 export interface BookingFormDialogProps {
   isOpen: boolean;
   onClose: (updated: boolean) => void;
-  booking?: Booking; 
-  rooms: Room[]; 
+  booking?: Booking;
+  rooms: Room[];
   defaultDate?: Date;
   defaultRoomId?: string;
 }
@@ -63,7 +66,9 @@ export interface BookingFormDialogProps {
 export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate, defaultRoomId }: BookingFormDialogProps) {
   const { toast } = useToast();
   const [isSubmitting, setIsSubmitting] = useState(false);
-  // Removed state related to overlap alert
+  const [showOverlapAlert, setShowOverlapAlert] = useState(false);
+  const [pendingBookingData, setPendingBookingData] = useState<BookingFormValues | null>(null);
+  const [overlappingBookingDetails, setOverlappingBookingDetails] = useState<string | null>(null);
 
   const form = useForm<BookingFormValues>({
     resolver: zodResolver(bookingFormSchema),
@@ -75,7 +80,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
       status: booking?.status || 'booked',
     },
   });
-  
+
   useEffect(() => {
     if (isOpen) {
       form.reset({
@@ -86,62 +91,125 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
         status: booking?.status || 'booked',
       });
       setIsSubmitting(false);
-      // Removed reset for overlap state
+      setShowOverlapAlert(false);
+      setPendingBookingData(null);
+      setOverlappingBookingDetails(null);
     }
   }, [isOpen, booking, rooms, defaultDate, defaultRoomId, form]);
 
-  const onSubmit = async (data: BookingFormValues) => {
-    console.log("[BookingFormDialog] onSubmit: Data submitted (reverted state):", data);
-    
-    if (rooms.length === 0 && !booking) {
-        toast({ title: "Error", description: "No rooms available to book. Please add rooms first.", variant: "destructive" });
-        return;
-    }
+  const saveBooking = async (data: BookingFormValues) => {
     setIsSubmitting(true);
-
-    // Original save logic without overlap check
     try {
-      if (booking) { 
+      if (booking) {
         const bookingToUpdate: Booking = {
           ...booking,
-          ...data,
-          startDate: data.startDate, 
-          endDate: data.endDate,     
-        };
-        const success = await updateBooking(bookingToUpdate);
-        if (success) {
-          toast({ title: "Booking Updated", description: "The booking has been successfully updated." });
-          onClose(true); 
-        } else {
-          toast({ title: "Error", description: "Failed to update booking. Please try again.", variant: "destructive" });
-        }
-      } else { 
-        const newBookingData = {
           ...data,
           startDate: data.startDate,
           endDate: data.endDate,
         };
-        const newBookingResult = await addBooking(newBookingData);
+        const success = await updateBooking(bookingToUpdate);
+        if (success) {
+          toast({ title: "Booking Updated", description: "The booking has been successfully updated." });
+          onClose(true);
+        } else {
+          toast({ title: "Error", description: "Failed to update booking. Please try again.", variant: "destructive" });
+        }
+      } else {
+        const newBookingResult = await addBooking(data);
         if (newBookingResult) {
           toast({ title: "Booking Created", description: "The new booking has been successfully created." });
-          onClose(true); 
+          onClose(true);
         } else {
           toast({ title: "Error", description: "Failed to create booking. Please try again.", variant: "destructive" });
         }
       }
     } catch (error) {
       toast({ title: "Error", description: "An unexpected error occurred. Please try again.", variant: "destructive" });
-      console.error("Failed to save booking:", error);
+      console.error("[BookingFormDialog] Failed to save booking:", error);
     } finally {
       setIsSubmitting(false);
+      setShowOverlapAlert(false);
     }
   };
-  
+
+  const onSubmit = async (data: BookingFormValues) => {
+    console.log("[BookingFormDialog] onSubmit: Checking for overlaps with data:", data);
+    if (rooms.length === 0 && !booking) {
+        toast({ title: "Error", description: "No rooms available to book. Please add rooms first.", variant: "destructive" });
+        return;
+    }
+
+    setIsSubmitting(true); // Set submitting true early for better UX
+    const existingBookings = await getBookingsByRoomId(data.roomId);
+    console.log("[BookingFormDialog] onSubmit: Fetched existing bookings for room " + data.roomId + ":", existingBookings.length);
+
+    const newBookingStart = startOfDay(data.startDate);
+    const newBookingEnd = startOfDay(data.endDate);
+    console.log("[BookingFormDialog] onSubmit: New/Edited booking dates (normalized):", newBookingStart, newBookingEnd);
+
+
+    let overlapFound = false;
+    let details = "";
+
+    for (const eb of existingBookings) {
+      if (booking && eb.id === booking.id) { // Don't compare with self if editing
+        console.log("[BookingFormDialog] onSubmit: Skipping self - booking ID:", eb.id);
+        continue;
+      }
+
+      const existingStart = startOfDay(ensureDateObject(eb.startDate) as Date);
+      const existingEnd = startOfDay(ensureDateObject(eb.endDate) as Date);
+      console.log("[BookingFormDialog] onSubmit: Comparing with existing booking:", eb.guestName, existingStart, existingEnd);
+
+
+      const isOverlapping = isWithinInterval(newBookingStart, { start: existingStart, end: existingEnd }) ||
+                            isWithinInterval(newBookingEnd, { start: existingStart, end: existingEnd }) ||
+                            (newBookingStart < existingStart && newBookingEnd > existingEnd) ||
+                            (newBookingStart <= existingStart && newBookingEnd >= existingEnd) || // Covers same day and engulfing
+                            (newBookingStart >= existingStart && newBookingEnd <= existingEnd); // Covers contained within
+
+
+      if (isOverlapping) {
+        console.log("[BookingFormDialog] onSubmit: OVERLAP DETECTED with existing booking ID:", eb.id, "Guest:", eb.guestName);
+        overlapFound = true;
+        details = `This booking from ${format(newBookingStart, "PPP")} to ${format(newBookingEnd, "PPP")} overlaps with an existing booking for ${eb.guestName} from ${format(existingStart, "PPP")} to ${format(existingEnd, "PPP")}.`;
+        break;
+      }
+    }
+
+    if (overlapFound) {
+      setPendingBookingData(data);
+      setOverlappingBookingDetails(details);
+      setShowOverlapAlert(true);
+      setIsSubmitting(false); // Allow interaction with alert
+    } else {
+      console.log("[BookingFormDialog] onSubmit: No overlap detected. Proceeding to save.");
+      await saveBooking(data);
+    }
+  };
+
+  const handleConfirmOverlap = async () => {
+    if (pendingBookingData) {
+      console.log("[BookingFormDialog] handleConfirmOverlap: Admin confirmed overlap. Saving pending data.");
+      await saveBooking(pendingBookingData);
+    }
+    setShowOverlapAlert(false);
+    setPendingBookingData(null);
+    setOverlappingBookingDetails(null);
+  };
+
+  const handleCancelOverlap = () => {
+    setShowOverlapAlert(false);
+    setPendingBookingData(null);
+    setOverlappingBookingDetails(null);
+    // setIsSubmitting(false); // Already handled or not needed if just closing alert
+  };
+
   if (!isOpen) return null;
 
   return (
     <>
-      <Dialog open={isOpen} onOpenChange={(open) => { if (!open) onClose(false); }}>
+      <Dialog open={isOpen} onOpenChange={(open) => { if (!open && !showOverlapAlert) onClose(false); }}>
         <DialogContent className="sm:max-w-lg">
           <DialogHeader>
             <DialogTitle className="text-primary">{booking ? 'Edit Booking' : 'Add New Booking'}</DialogTitle>
@@ -282,7 +350,7 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
                   <Button type="button" variant="outline" onClick={() => onClose(false)} disabled={isSubmitting}>Cancel</Button>
                 </DialogClose>
                 <Button type="submit" disabled={isSubmitting || (rooms.length === 0 && !booking) }>
-                  {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+                  {isSubmitting && !showOverlapAlert && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
                   {booking ? 'Save Changes' : 'Create Booking'}
                 </Button>
               </DialogFooter>
@@ -290,9 +358,29 @@ export function BookingFormDialog({ isOpen, onClose, booking, rooms, defaultDate
           </Form>
         </DialogContent>
       </Dialog>
-      {/* AlertDialog for overlap confirmation has been removed by this revert */}
+
+      <AlertDialog open={showOverlapAlert} onOpenChange={setShowOverlapAlert}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle className="flex items-center">
+              <AlertTriangle className="h-6 w-6 mr-2 text-yellow-500" />
+              Booking Overlap
+            </AlertDialogTitle>
+            <AlertDialogDescription>
+              {overlappingBookingDetails || "This booking overlaps with an existing booking for this room."}
+              <br />
+              Are you sure you want to proceed?
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={handleCancelOverlap} disabled={isSubmitting}>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleConfirmOverlap} disabled={isSubmitting} className="bg-primary hover:bg-primary/90">
+              {isSubmitting && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
+              Proceed Anyway
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </>
   );
 }
-
-    
