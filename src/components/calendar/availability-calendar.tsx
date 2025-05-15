@@ -2,14 +2,14 @@
 "use client";
 
 import type { Room, Booking, BookingStatus, CalendarCellData, Location as LocationType } from "@/lib/types";
-import type { Timestamp } from 'firebase/firestore';
+import type { Timestamp } from 'firebase/firestore'; // Explicit import
 import { useState, useEffect, useMemo } from "react";
 import {
   addDays,
   startOfWeek,
   format,
   isWithinInterval,
-  isSameDay, // Keep for potential direct comparisons if needed, though isWithinInterval should suffice
+  isSameDay, 
   parseISO
 } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
@@ -28,9 +28,44 @@ interface AvailabilityCalendarProps {
   initialBookings: Booking[];
   currentDisplayDate: Date;
   onBookingUpdate: () => void;
-  allRooms: Room[]; // All rooms from all locations, for the booking dialog
+  allRooms: Room[]; 
   allLocations: LocationType[];
 }
+
+// Helper function to ensure date values are JavaScript Date objects
+const ensureDateObject = (dateValue: Date | Timestamp | string | undefined): Date => {
+  if (dateValue instanceof Date) {
+    return dateValue;
+  }
+  if (typeof dateValue === 'string') {
+    try {
+      return parseISO(dateValue);
+    } catch (e) {
+      // If parseISO fails, try new Date() as a fallback for other string formats
+      const parsed = new Date(dateValue);
+      if (!isNaN(parsed.getTime())) return parsed;
+      console.warn("[AvailabilityCalendar] Failed to parse date string with parseISO and new Date():", dateValue);
+      // Return a placeholder or throw error if critical, here returning current date as a fallback
+      return new Date(); 
+    }
+  }
+  if (dateValue && typeof (dateValue as Timestamp).toDate === 'function') {
+    return (dateValue as Timestamp).toDate();
+  }
+  // Fallback for undefined or other unexpected types
+  if (dateValue === undefined) {
+    console.warn("[AvailabilityCalendar] ensureDateObject received undefined, returning current date as fallback.");
+    return new Date(); // Or handle as an error / specific default
+  }
+  console.warn("[AvailabilityCalendar] Unexpected date type in ensureDateObject, attempting direct conversion:", dateValue);
+  const parsedAttempt = new Date(dateValue as any);
+  if (!isNaN(parsedAttempt.getTime())) return parsedAttempt;
+  
+  // Final fallback if all else fails
+  console.error("[AvailabilityCalendar] Critical error: could not convert date value to Date object:", dateValue);
+  return new Date(); 
+};
+
 
 const getStatusColor = (status: BookingStatus): string => {
   switch (status) {
@@ -45,21 +80,6 @@ const getStatusColor = (status: BookingStatus): string => {
     default:
       return "bg-background";
   }
-};
-
-// Helper function to ensure date values are JavaScript Date objects
-const ensureDateObject = (dateValue: Date | Timestamp | string): Date => {
-  if (dateValue instanceof Date) {
-    return dateValue;
-  }
-  if (typeof dateValue === 'string') {
-    return parseISO(dateValue);
-  }
-  if (dateValue && typeof (dateValue as Timestamp).toDate === 'function') {
-    return (dateValue as Timestamp).toDate();
-  }
-  console.warn("[AvailabilityCalendar] Unexpected date type, attempting direct conversion:", dateValue);
-  return new Date(dateValue as any); // Fallback, should ideally not be hit with proper typing
 };
 
 
@@ -88,7 +108,6 @@ export function AvailabilityCalendar({
 
   useEffect(() => {
     setIsMounted(true);
-    // Update bookings state when initialBookings prop changes
     setBookings(
         initialBookings.map(b => ({
         ...b,
@@ -107,26 +126,20 @@ export function AvailabilityCalendar({
   }, [currentDisplayDate]);
 
   const calendarData = useMemo(() => {
-    // Ensure bookings used here have Date objects (already done by 'bookings' state)
     const currentBookings = bookings;
 
     return rooms.map(room => {
       const row: CalendarCellData[] = weekDays.map(date => {
-        // Filter bookings for the current room and date cell
         const dayBookings = currentBookings.filter(
           booking =>
             booking.roomId === room.id &&
-            isWithinInterval(date, { start: booking.startDate, end: booking.endDate })
-            // `isWithinInterval` is inclusive of start and end if times are at the boundary.
-            // `date` is start of the day. `booking.startDate` and `booking.endDate`
-            // should also represent start of day for day-based bookings.
+            isWithinInterval(date, { start: booking.startDate as Date, end: booking.endDate as Date })
         );
 
         let cellStatus: BookingStatus = "available";
         let relevantBooking: Booking | undefined = undefined;
 
         if (dayBookings.length > 0) {
-          // Prioritize status display if multiple 'bookings' (e.g. pending vs maintenance) overlap on a day
           if (dayBookings.some(b => b.status === 'booked')) {
             cellStatus = 'booked';
             relevantBooking = dayBookings.find(b => b.status === 'booked');
@@ -259,8 +272,6 @@ export function AvailabilityCalendar({
             isOpen={dialogOpen}
             onClose={handleDialogClose}
             booking={selectedBooking}
-            // Pass allRooms from all locations for the dialog, so admin can potentially reassign rooms across locations if needed.
-            // If dialog should only show rooms for current location, this would be `rooms` (props.rooms).
             rooms={allRooms} 
             defaultDate={selectedCellData?.date}
             defaultRoomId={selectedCellData?.roomId}
