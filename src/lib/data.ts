@@ -183,28 +183,54 @@ export const deleteRoom = async (roomId: string): Promise<boolean> => {
 };
 
 // --- Booking Functions ---
-export const getBookings = async (roomId?: string): Promise<Booking[]> => {
+export const getBookings = async (roomIdOrLocationId?: string, type: 'room' | 'location' = 'room'): Promise<Booking[]> => {
   if (!db) {
     console.error("[data.ts] getBookings: Firestore not initialized. Returning empty array.");
     return [];
   }
-  console.log(`[data.ts] getBookings: Fetching bookings ${roomId ? `for room ${roomId}` : '(all bookings)'} from Firestore...`);
-  try {
-    let bookingsQuery;
-    if (roomId) {
-      bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
-    } else {
-      bookingsQuery = collection(db, 'bookings');
+  
+  if (type === 'location' && roomIdOrLocationId) {
+    console.log(`[data.ts] getBookings (by location): Fetching bookings for location ${roomIdOrLocationId} from Firestore...`);
+    return getBookingsByLocation(roomIdOrLocationId);
+  } else if (type === 'room' && roomIdOrLocationId) {
+    console.log(`[data.ts] getBookings (by room): Fetching bookings for room ${roomIdOrLocationId} from Firestore...`);
+    return getBookingsByRoomId(roomIdOrLocationId);
+  } else {
+    console.log(`[data.ts] getBookings (all): Fetching all bookings from Firestore...`);
+    try {
+      const bookingsQuery = collection(db, 'bookings');
+      const bookingSnapshot: QuerySnapshot<DocumentData> = await getDocs(bookingsQuery);
+      const bookingList = bookingSnapshot.docs.map(doc => {
+        const data = doc.data();
+        return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
+      });
+      console.log(`[data.ts] getBookings (all): Fetched ${bookingList.length} bookings.`);
+      return bookingList;
+    } catch (error) {
+      console.error("[data.ts] getBookings (all): Error fetching all bookings:", error);
+      return [];
     }
+  }
+};
+
+
+export const getBookingsByRoomId = async (roomId: string): Promise<Booking[]> => {
+  if (!db) {
+    console.error("[data.ts] getBookingsByRoomId: Firestore not initialized. Returning empty array.");
+    return [];
+  }
+  console.log(`[data.ts] getBookingsByRoomId: Fetching bookings for room ${roomId} from Firestore...`);
+  try {
+    const bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
     const bookingSnapshot: QuerySnapshot<DocumentData> = await getDocs(bookingsQuery);
     const bookingList = bookingSnapshot.docs.map(doc => {
       const data = doc.data();
       return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
     });
-    console.log(`[data.ts] getBookings: Fetched ${bookingList.length} bookings.`);
+    console.log(`[data.ts] getBookingsByRoomId: Fetched ${bookingList.length} bookings for room ${roomId}.`);
     return bookingList;
   } catch (error) {
-    console.error("[data.ts] getBookings: Error fetching bookings:", error);
+    console.error(`[data.ts] getBookingsByRoomId: Error fetching bookings for room ${roomId}:`, error);
     return [];
   }
 };
@@ -222,6 +248,11 @@ export const getBookingsByLocation = async (locationId: string): Promise<Booking
       return [];
     }
     const roomIds = locationRooms.map(room => room.id);
+    
+    if (roomIds.length === 0) { // Should be caught by previous check, but good for safety
+        console.log(`[data.ts] getBookingsByLocation: No room IDs to query for location ${locationId}.`);
+        return [];
+    }
     
     // Firestore 'in' query supports up to 30 elements in the array.
     // For more than 30 rooms, multiple queries would be needed. This example assumes fewer.
@@ -258,7 +289,14 @@ export const addBooking = async (bookingData: Omit<Booking, 'id'>): Promise<Book
     };
     const docRef = await addDoc(collection(db, 'bookings'), bookingDoc);
     console.log(`[data.ts] addBooking: Booking added with ID: ${docRef.id}`);
-    return { ...bookingData, id: docRef.id };
+    // Convert Timestamps back to Dates for the returned object to match Booking type
+    const newBooking: Booking = { 
+      ...bookingData, 
+      id: docRef.id,
+      startDate: (bookingDoc.startDate as Timestamp).toDate(),
+      endDate: (bookingDoc.endDate as Timestamp).toDate()
+    };
+    return newBooking;
   } catch (error) {
     console.error("[data.ts] addBooking: Error adding booking:", error);
     return null;
@@ -274,12 +312,18 @@ export const updateBooking = async (updatedBooking: Booking): Promise<boolean> =
   try {
     const bookingDocRef = doc(db, 'bookings', updatedBooking.id);
     const { id, ...bookingData } = updatedBooking; // Exclude id from data to be written
-    const bookingDocData: BookingDocument = {
-        ...(bookingData as Omit<Booking, 'id' | 'startDate' | 'endDate'>), // Cast to exclude id, and expect dates to be Date
-        startDate: Timestamp.fromDate(new Date(updatedBooking.startDate as Date)),
-        endDate: Timestamp.fromDate(new Date(updatedBooking.endDate as Date)),
+    
+    // Ensure dates are Timestamps before writing to Firestore
+    const startDate = bookingData.startDate instanceof Date ? Timestamp.fromDate(bookingData.startDate) : bookingData.startDate;
+    const endDate = bookingData.endDate instanceof Date ? Timestamp.fromDate(bookingData.endDate) : bookingData.endDate;
+
+    const bookingDocData: Partial<BookingDocument> = { // Use Partial for update
+        ...(bookingData as Omit<Booking, 'id' | 'startDate' | 'endDate'>), 
+        startDate: startDate as Timestamp, // Cast as Timestamp
+        endDate: endDate as Timestamp,     // Cast as Timestamp
     };
-    await updateDoc(bookingDocRef, bookingDocData as any); // Use 'as any' because updateDoc expects field paths for partial updates
+
+    await updateDoc(bookingDocRef, bookingDocData); 
     console.log(`[data.ts] updateBooking: Booking ${updatedBooking.id} updated.`);
     return true;
   } catch (error) {
@@ -314,36 +358,37 @@ export const seedInitialData = async () => {
 
   try {
     const locationsCol = collection(db, 'locations');
-    const locationSnapshot = await getDocs(query(locationsCol)); // Simple getDocs to check if empty
+    let locationSnapshot = await getDocs(query(locationsCol)); 
     
     if (locationSnapshot.empty) {
       console.log("[data.ts] seedInitialData: No locations found. Seeding initial data into Firestore...");
       const batch = writeBatch(db);
 
-      const initialLocations: Omit<Location, 'id'>[] = [
+      const initialLocationsData: Omit<Location, 'id'>[] = [
         { name: 'Granada, Spain' },
         { name: 'Second Location (Coming Soon)' },
       ];
       
       const locationRefs: { [key: string]: string } = {};
+      const createdLocationIds: string[] = [];
 
-      for (const locData of initialLocations) {
+      for (const locData of initialLocationsData) {
         const locRef = doc(collection(db, 'locations')); // Auto-generate ID
         batch.set(locRef, locData);
+        createdLocationIds.push(locRef.id); // Store the auto-generated ID
         if (locData.name === 'Granada, Spain') locationRefs.granada = locRef.id;
-        if (locData.name === 'Second Location (Coming Soon)') locationRefs.second = locRef.id;
       }
       console.log("[data.ts] seedInitialData: Locations prepared for batch.");
 
       if (locationRefs.granada) {
-        const initialRooms: Omit<Room, 'id'>[] = [
+        const initialRoomsData: Omit<Room, 'id'>[] = [
           { name: 'Sunrise Suite', locationId: locationRefs.granada },
           { name: 'Ocean View Deluxe', locationId: locationRefs.granada },
           { name: 'Garden Retreat', locationId: locationRefs.granada },
         ];
         const roomRefs: { [key: string]: string } = {};
 
-        for (const roomData of initialRooms) {
+        for (const roomData of initialRoomsData) {
           const roomRef = doc(collection(db, 'rooms')); // Auto-generate ID
           batch.set(roomRef, roomData);
           if (roomData.name === 'Sunrise Suite') roomRefs.sunrise = roomRef.id;
@@ -352,7 +397,7 @@ export const seedInitialData = async () => {
         console.log("[data.ts] seedInitialData: Rooms prepared for batch.");
 
         if (roomRefs.sunrise && roomRefs.ocean) {
-            const initialBookings: Omit<Booking, 'id'>[] = [
+            const initialBookingsData: Omit<Booking, 'id'>[] = [
             {
                 roomId: roomRefs.sunrise,
                 guestName: 'Alice Wonderland',
@@ -368,7 +413,7 @@ export const seedInitialData = async () => {
                 status: 'pending',
             },
             ];
-            for (const bookingData of initialBookings) {
+            for (const bookingData of initialBookingsData) {
                 const bookingDoc: BookingDocument = {
                     ...bookingData,
                     startDate: Timestamp.fromDate(new Date(bookingData.startDate as Date)),
@@ -382,6 +427,9 @@ export const seedInitialData = async () => {
       }
       await batch.commit();
       console.log("[data.ts] seedInitialData: Initial data batch committed successfully to Firestore.");
+      // Re-fetch location snapshot to confirm
+      locationSnapshot = await getDocs(query(locationsCol));
+      console.log(`[data.ts] seedInitialData: Confirmed locations after seed: ${locationSnapshot.size} docs.`);
     } else {
       console.log(`[data.ts] seedInitialData: Locations collection is not empty (${locationSnapshot.size} docs found). Skipping seed.`);
     }

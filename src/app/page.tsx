@@ -24,23 +24,25 @@ export default function HomePage() {
   const [selectedLocationId, setSelectedLocationId] = useState<string | undefined>(undefined);
   
   const [isLoadingLocations, setIsLoadingLocations] = useState(true);
-  const [isLoadingLocationData, setIsLoadingLocationData] = useState(false); // For rooms/bookings of selected location
-  const [isSeeding, setIsSeeding] = useState(true);
+  const [isLoadingLocationData, setIsLoadingLocationData] = useState(false);
+  const [isSeeding, setIsSeeding] = useState(true); // Tracks if seeding process is active
   const { isAdmin, isLoading: isLoadingAuth } = useAuth();
 
   // Effect for initial seeding and loading all locations
   useEffect(() => {
     const initialLoad = async () => {
       console.log("[page.tsx] useEffect[initialLoad]: Running initial load and seed check...");
-      setIsSeeding(true);
       setIsLoadingLocations(true);
+      setIsSeeding(true); // Indicate seeding is in progress
+
       try {
         await seedInitialData();
         console.log("[page.tsx] useEffect[initialLoad]: Seeding attempt complete.");
       } catch (error) {
         console.error("[page.tsx] useEffect[initialLoad]: Error during seeding:", error);
       }
-      setIsSeeding(false);
+      // Seeding process is finished, regardless of outcome
+      setIsSeeding(false); 
 
       try {
         console.log("[page.tsx] useEffect[initialLoad]: Loading initial locations from Firestore...");
@@ -48,32 +50,38 @@ export default function HomePage() {
         setAllLocations(fetchedLocations);
         console.log(`[page.tsx] useEffect[initialLoad]: Successfully set ${fetchedLocations.length} locations to state.`);
         
-        if (fetchedLocations.length > 0 && !selectedLocationId) {
-          // Only set default if no location is currently selected (e.g. on first load)
-          console.log(`[page.tsx] useEffect[initialLoad]: Defaulting to first location: ${fetchedLocations[0].id}`);
-          setSelectedLocationId(fetchedLocations[0].id); 
-        } else if (fetchedLocations.length === 0) {
-           console.log("[page.tsx] useEffect[initialLoad]: No locations found. Clearing selected location.");
-           setSelectedLocationId(undefined);
+        if (fetchedLocations.length > 0) {
+          const granadaLocation = fetchedLocations.find(loc => loc.name.toLowerCase() === "granada, spain");
+          if (granadaLocation) {
+            console.log(`[page.tsx] useEffect[initialLoad]: Defaulting to Granada, Spain: ${granadaLocation.id}`);
+            setSelectedLocationId(granadaLocation.id);
+          } else {
+            // If Granada not found, default to the first available location
+            console.log(`[page.tsx] useEffect[initialLoad]: 'Granada, Spain' not found. Defaulting to first available location: ${fetchedLocations[0].id}`);
+            setSelectedLocationId(fetchedLocations[0].id);
+          }
+        } else {
+           console.log("[page.tsx] useEffect[initialLoad]: No locations found after seeding. Clearing selected location.");
+           setSelectedLocationId(undefined); // No locations, so no selection
         }
       } catch (error) {
         console.error("[page.tsx] useEffect[initialLoad]: Error fetching locations:", error);
         setAllLocations([]);
+        setSelectedLocationId(undefined);
       } finally {
         setIsLoadingLocations(false);
       }
     };
     initialLoad();
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []); // Runs once on mount
+  }, []); // Empty dependency array: runs only once on mount
 
-
-  // Effect for fetching rooms and bookings when selectedLocationId changes
+  // Effect for fetching rooms and bookings when selectedLocationId changes (and not during seeding)
   useEffect(() => {
     const fetchLocationSpecificData = async () => {
-      if (selectedLocationId && !isSeeding) { // Ensure seeding is done
+      if (selectedLocationId && !isSeeding && !isLoadingLocations) { // Ensure seeding and location loading is done
+        console.log(`[page.tsx] useEffect[selectedLocationId]: Location selected: ${selectedLocationId}. Fetching rooms/bookings...`);
         setIsLoadingLocationData(true);
-        console.log(`[page.tsx] useEffect[selectedLocationId]: Location changed to ${selectedLocationId}. Fetching rooms/bookings...`);
         try {
           const fetchedRooms = await getRooms(selectedLocationId);
           const fetchedBookings = await getBookingsByLocation(selectedLocationId);
@@ -87,16 +95,19 @@ export default function HomePage() {
         } finally {
             setIsLoadingLocationData(false);
         }
-      } else if (!selectedLocationId && !isSeeding) {
-        // No location selected, clear rooms/bookings
+      } else if (!selectedLocationId && !isSeeding && !isLoadingLocations) {
+        console.log("[page.tsx] useEffect[selectedLocationId]: No location selected, clearing rooms/bookings.");
         setAllRoomsForSelectedLocation([]);
         setAllBookingsForSelectedLocation([]);
         setIsLoadingLocationData(false); 
       }
     };
     
-    fetchLocationSpecificData();
-  }, [selectedLocationId, isSeeding]);
+    // Only run if not currently loading locations, to avoid race conditions with initialLoad
+    if(!isLoadingLocations) {
+        fetchLocationSpecificData();
+    }
+  }, [selectedLocationId, isSeeding, isLoadingLocations]);
 
 
   const handleNavigate = (direction: "prev" | "next") => {
@@ -109,34 +120,39 @@ export default function HomePage() {
     setIsLoadingLocations(true); // For all locations
     
     try {
-        // Refetch all locations first in case one was added/deleted
         const fetchedLocations = await getLocations();
         setAllLocations(fetchedLocations);
 
-        if (selectedLocationId && fetchedLocations.find(loc => loc.id === selectedLocationId)) {
-            // If current location still exists, refetch its data
-            const fetchedRooms = await getRooms(selectedLocationId);
-            const fetchedBookings = await getBookingsByLocation(selectedLocationId);
-            setAllRoomsForSelectedLocation(fetchedRooms);
-            setAllBookingsForSelectedLocation(fetchedBookings);
-        } else if (fetchedLocations.length > 0) {
-            // Current location deleted or none was selected, default to first
-            console.log("[page.tsx] handleDataUpdate: Current location invalid or none selected, defaulting to first available.");
-            setSelectedLocationId(fetchedLocations[0].id); 
-            // The useEffect for selectedLocationId will then fetch rooms/bookings for the new default
-        } else {
-            // No locations exist at all
-            setSelectedLocationId(undefined);
-            setAllRoomsForSelectedLocation([]);
-            setAllBookingsForSelectedLocation([]);
+        // Determine the ID to re-select. Prioritize Granada, then current, then first.
+        let newSelectedIdToSet: string | undefined = undefined;
+        if (fetchedLocations.length > 0) {
+            const granadaLocation = fetchedLocations.find(loc => loc.name.toLowerCase() === "granada, spain");
+            if (granadaLocation) {
+                newSelectedIdToSet = granadaLocation.id;
+            } else {
+                const currentSelectionStillValid = selectedLocationId && fetchedLocations.find(loc => loc.id === selectedLocationId);
+                newSelectedIdToSet = currentSelectionStillValid ? selectedLocationId : fetchedLocations[0].id;
+            }
         }
+        
+        // Update selectedLocationId. The useEffect for selectedLocationId will handle fetching its data.
+        setSelectedLocationId(newSelectedIdToSet);
+
+        // If selectedLocationId happens to be the same, the above won't trigger the effect,
+        // so we might need to manually re-fetch if we expect data for *that same ID* to have changed.
+        // However, most CRUD ops (add/delete location/room) would likely change selectedLocationId or its validity.
+        // For simplicity, we'll rely on the selectedLocationId effect.
+        // If a booking for the *current* location is updated, that effect should re-fetch anyway
+        // if `onBookingUpdate` properly sets `selectedLocationId` or triggers a re-fetch.
+
     } catch (error) {
         console.error(`[page.tsx] handleDataUpdate: Error refetching data:`, error);
     } finally {
-        setIsLoadingLocationData(false);
+        // isLoadingLocationData will be set by the selectedLocationId effect if it runs
+        // setIsLoadingLocationData(false); // Let the other effect handle this if ID changes
         setIsLoadingLocations(false);
     }
-  }, [selectedLocationId]);
+  }, [selectedLocationId]); // Include selectedLocationId to have its current value for re-selection logic
 
   const handleLocationChange = (newLocationId: string) => {
     console.log(`[page.tsx] handleLocationChange: Location changed by user to ${newLocationId}`);
@@ -146,9 +162,9 @@ export default function HomePage() {
   const filteredRooms = useMemo(() => allRoomsForSelectedLocation, [allRoomsForSelectedLocation]);
   const filteredBookings = useMemo(() => allBookingsForSelectedLocation, [allBookingsForSelectedLocation]);
 
-  const overallLoading = isLoadingAuth || isSeeding || isLoadingLocations;
+  const overallLoading = isLoadingAuth || isLoadingLocations || isSeeding; // isSeeding covers the very initial phase
 
-  if (overallLoading) { 
+  if (overallLoading && !allLocations.length) { // Show full page loader only if truly initial or locations not yet fetched
     return (
       <div className="flex flex-col min-h-screen">
         <AppHeader />
@@ -156,7 +172,7 @@ export default function HomePage() {
           <Loader2 className="h-12 w-12 animate-spin text-primary" />
           <p className="ml-2">
             {isLoadingAuth ? "Loading authentication..." : 
-             isSeeding ? "Initializing data..." : 
+             isSeeding ? "Initializing data..." : // isSeeding covers the seed part of initial load
              isLoadingLocations ? "Loading locations..." : "Loading..."}
           </p>
         </main>
@@ -175,7 +191,12 @@ export default function HomePage() {
                  <MapPin className="h-6 w-6 mr-2 text-primary" />
                  <CardTitle>Select Location</CardTitle>
               </div>
-              {allLocations.length > 0 ? (
+              {isLoadingLocations && allLocations.length === 0 ? ( // Specific loader for select if locations are loading and none yet
+                <div className="flex items-center text-muted-foreground">
+                  <Loader2 className="h-5 w-5 animate-spin mr-2" />
+                  <span>Loading locations...</span>
+                </div>
+              ) : allLocations.length > 0 ? (
                 <Select onValueChange={handleLocationChange} value={selectedLocationId || ''}>
                   <SelectTrigger className="w-[280px]">
                     <SelectValue placeholder="Select a location" />
@@ -192,13 +213,14 @@ export default function HomePage() {
             </CardHeader>
           </Card>
           
-          {isLoadingLocationData && ( 
+          {isLoadingLocationData && ( // Loader for calendar data specifically
             <div className="flex items-center justify-center py-10">
               <Loader2 className="h-8 w-8 animate-spin text-primary" />
               <span className="ml-2">Loading calendar data...</span>
             </div>
           )}
 
+          {/* Calendar display logic */}
           {!isLoadingLocationData && selectedLocationId && (
             <>
               <CalendarNavigation currentDate={currentDate} onNavigate={handleNavigate} />
@@ -207,14 +229,15 @@ export default function HomePage() {
                 rooms={filteredRooms}
                 initialBookings={filteredBookings} 
                 currentDisplayDate={currentDate}
-                onBookingUpdate={handleDataUpdate}
-                allRooms={allRoomsForSelectedLocation} 
+                onBookingUpdate={handleDataUpdate} // This should re-trigger data fetching
+                allRooms={allRooms} // Pass all rooms from all locations for booking dialog
                 allLocations={allLocations}
               />
             </>
           )}
           
-          {!isLoadingLocationData && allLocations.length > 0 && !selectedLocationId && (
+          {/* Message if no location is selected but locations exist */}
+          {!selectedLocationId && !isLoadingLocations && allLocations.length > 0 && (
              <Card className="shadow-md text-center py-10">
                 <CardContent>
                     <p className="text-muted-foreground">Please select a location to view its availability calendar.</p>
@@ -222,6 +245,7 @@ export default function HomePage() {
              </Card>
           )}
 
+          {/* Message if no locations are configured at all */}
            {!isLoadingLocations && !isSeeding && allLocations.length === 0 && ( 
              <Card className="shadow-md text-center py-10">
                 <CardHeader>
@@ -268,3 +292,4 @@ export default function HomePage() {
   );
 }
 
+    
