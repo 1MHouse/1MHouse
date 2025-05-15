@@ -18,14 +18,18 @@ import type { Location, Room, Booking, BookingDocument } from './types';
 
 // --- Helper Functions ---
 const convertTimestampToDate = (data: any): any => {
-  if (data && data.startDate && data.startDate instanceof Timestamp) {
-    data.startDate = data.startDate.toDate();
-  }
-  if (data && data.endDate && data.endDate instanceof Timestamp) {
-    data.endDate = data.endDate.toDate();
+  // Check if data is an object and has the properties before trying to convert
+  if (data && typeof data === 'object') {
+    if (data.startDate && data.startDate instanceof Timestamp) {
+      data.startDate = data.startDate.toDate();
+    }
+    if (data.endDate && data.endDate instanceof Timestamp) {
+      data.endDate = data.endDate.toDate();
+    }
   }
   return data;
 };
+
 
 // --- Location Functions ---
 export const getLocations = async (): Promise<Location[]> => {
@@ -86,7 +90,6 @@ export const deleteLocation = async (locationId: string): Promise<boolean> => {
   }
   console.log(`[data.ts] deleteLocation: Deleting location ID ${locationId} from Firestore...`);
   try {
-    // Check for associated rooms first
     const roomsQuery = query(collection(db, 'rooms'), where('locationId', '==', locationId));
     const roomSnapshot = await getDocs(roomsQuery);
     if (!roomSnapshot.empty) {
@@ -108,7 +111,8 @@ export const getRooms = async (locationId?: string): Promise<Room[]> => {
     console.error("[data.ts] getRooms: Firestore not initialized. Returning empty array.");
     return [];
   }
-  console.log(`[data.ts] getRooms: Fetching rooms ${locationId ? `for location ${locationId}` : '(all rooms)'} from Firestore...`);
+  const logContext = locationId ? `for location ${locationId}` : '(all rooms)';
+  console.log(`[data.ts] getRooms: Fetching rooms ${logContext} from Firestore...`);
   try {
     let roomsQuery;
     if (locationId) {
@@ -118,10 +122,10 @@ export const getRooms = async (locationId?: string): Promise<Room[]> => {
     }
     const roomSnapshot = await getDocs(roomsQuery);
     const roomList = roomSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Room));
-    console.log(`[data.ts] getRooms: Fetched ${roomList.length} rooms.`);
+    console.log(`[data.ts] getRooms: Fetched ${roomList.length} rooms ${logContext}.`);
     return roomList;
   } catch (error) {
-    console.error("[data.ts] getRooms: Error fetching rooms:", error);
+    console.error(`[data.ts] getRooms: Error fetching rooms ${logContext}:`, error);
     return [];
   }
 };
@@ -166,7 +170,6 @@ export const deleteRoom = async (roomId: string): Promise<boolean> => {
   }
   console.log(`[data.ts] deleteRoom: Deleting room ID ${roomId} from Firestore...`);
   try {
-    // Check for associated bookings first
     const bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
     const bookingSnapshot = await getDocs(bookingsQuery);
     if (!bookingSnapshot.empty) {
@@ -183,61 +186,41 @@ export const deleteRoom = async (roomId: string): Promise<boolean> => {
 };
 
 // --- Booking Functions ---
-export const getBookings = async (roomIdOrLocationId?: string, type: 'room' | 'location' = 'room'): Promise<Booking[]> => {
+// General getBookings (can be used to get all bookings if no ID is passed or filter by room ID)
+export const getBookings = async (roomId?: string): Promise<Booking[]> => {
   if (!db) {
     console.error("[data.ts] getBookings: Firestore not initialized. Returning empty array.");
     return [];
   }
   
-  if (type === 'location' && roomIdOrLocationId) {
-    console.log(`[data.ts] getBookings (by location): Fetching bookings for location ${roomIdOrLocationId} from Firestore...`);
-    return getBookingsByLocation(roomIdOrLocationId);
-  } else if (type === 'room' && roomIdOrLocationId) {
-    console.log(`[data.ts] getBookings (by room): Fetching bookings for room ${roomIdOrLocationId} from Firestore...`);
-    return getBookingsByRoomId(roomIdOrLocationId);
+  let bookingsQuery;
+  if (roomId) {
+    console.log(`[data.ts] getBookings (by room): Fetching bookings for room ${roomId} from Firestore...`);
+    bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
   } else {
     console.log(`[data.ts] getBookings (all): Fetching all bookings from Firestore...`);
-    try {
-      const bookingsQuery = collection(db, 'bookings');
-      const bookingSnapshot: QuerySnapshot<DocumentData> = await getDocs(bookingsQuery);
-      const bookingList = bookingSnapshot.docs.map(doc => {
-        const data = doc.data();
-        return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
-      });
-      console.log(`[data.ts] getBookings (all): Fetched ${bookingList.length} bookings.`);
-      return bookingList;
-    } catch (error) {
-      console.error("[data.ts] getBookings (all): Error fetching all bookings:", error);
-      return [];
-    }
+    bookingsQuery = collection(db, 'bookings');
   }
-};
 
-
-export const getBookingsByRoomId = async (roomId: string): Promise<Booking[]> => {
-  if (!db) {
-    console.error("[data.ts] getBookingsByRoomId: Firestore not initialized. Returning empty array.");
-    return [];
-  }
-  console.log(`[data.ts] getBookingsByRoomId: Fetching bookings for room ${roomId} from Firestore...`);
   try {
-    const bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
     const bookingSnapshot: QuerySnapshot<DocumentData> = await getDocs(bookingsQuery);
     const bookingList = bookingSnapshot.docs.map(doc => {
       const data = doc.data();
       return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
     });
-    console.log(`[data.ts] getBookingsByRoomId: Fetched ${bookingList.length} bookings for room ${roomId}.`);
+    console.log(`[data.ts] getBookings: Fetched ${bookingList.length} bookings ${roomId ? `for room ${roomId}` : '(all)'}.`);
     return bookingList;
   } catch (error) {
-    console.error(`[data.ts] getBookingsByRoomId: Error fetching bookings for room ${roomId}:`, error);
+    console.error(`[data.ts] getBookings: Error fetching bookings ${roomId ? `for room ${roomId}` : '(all)'}:`, error);
     return [];
   }
 };
 
+
+// Specific getBookingsByLocation - used by homepage
 export const getBookingsByLocation = async (locationId: string): Promise<Booking[]> => {
   if (!db) {
-    console.error("[data.ts] getBookingsByLocation: Firestore not initialized. Returning empty array.");
+    console.error("[data.ts] getBookingsByLocation: Firestore not initialized for location query. Returning empty array.");
     return [];
   }
   console.log(`[data.ts] getBookingsByLocation: Fetching bookings for location ${locationId} from Firestore...`);
@@ -249,7 +232,7 @@ export const getBookingsByLocation = async (locationId: string): Promise<Booking
     }
     const roomIds = locationRooms.map(room => room.id);
     
-    if (roomIds.length === 0) { // Should be caught by previous check, but good for safety
+    if (roomIds.length === 0) { 
         console.log(`[data.ts] getBookingsByLocation: No room IDs to query for location ${locationId}.`);
         return [];
     }
@@ -258,7 +241,6 @@ export const getBookingsByLocation = async (locationId: string): Promise<Booking
     // For more than 30 rooms, multiple queries would be needed. This example assumes fewer.
     if (roomIds.length > 30) {
         console.warn("[data.ts] getBookingsByLocation: Location has more than 30 rooms. Querying for first 30 rooms only due to Firestore limitations.");
-        // Potentially implement multiple queries and merge results for > 30 rooms.
     }
     
     const bookingsQuery = query(collection(db, 'bookings'), where('roomId', 'in', roomIds.slice(0,30)));
@@ -275,6 +257,7 @@ export const getBookingsByLocation = async (locationId: string): Promise<Booking
   }
 };
 
+
 export const addBooking = async (bookingData: Omit<Booking, 'id'>): Promise<Booking | null> => {
   if (!db) {
     console.error("[data.ts] addBooking: Firestore not initialized.");
@@ -282,19 +265,25 @@ export const addBooking = async (bookingData: Omit<Booking, 'id'>): Promise<Book
   }
   console.log(`[data.ts] addBooking: Adding booking to Firestore...`, bookingData);
   try {
+    // Ensure dates are JS Date objects before converting to Timestamp
+    const startDate = bookingData.startDate instanceof Timestamp ? bookingData.startDate.toDate() : new Date(bookingData.startDate as Date);
+    const endDate = bookingData.endDate instanceof Timestamp ? bookingData.endDate.toDate() : new Date(bookingData.endDate as Date);
+
     const bookingDoc: BookingDocument = {
-      ...bookingData,
-      startDate: Timestamp.fromDate(new Date(bookingData.startDate as Date)),
-      endDate: Timestamp.fromDate(new Date(bookingData.endDate as Date)),
+      roomId: bookingData.roomId,
+      guestName: bookingData.guestName,
+      status: bookingData.status,
+      startDate: Timestamp.fromDate(startDate),
+      endDate: Timestamp.fromDate(endDate),
     };
     const docRef = await addDoc(collection(db, 'bookings'), bookingDoc);
     console.log(`[data.ts] addBooking: Booking added with ID: ${docRef.id}`);
-    // Convert Timestamps back to Dates for the returned object to match Booking type
+    
     const newBooking: Booking = { 
       ...bookingData, 
       id: docRef.id,
-      startDate: (bookingDoc.startDate as Timestamp).toDate(),
-      endDate: (bookingDoc.endDate as Timestamp).toDate()
+      startDate: startDate, // Return as JS Date
+      endDate: endDate      // Return as JS Date
     };
     return newBooking;
   } catch (error) {
@@ -311,16 +300,17 @@ export const updateBooking = async (updatedBooking: Booking): Promise<boolean> =
   console.log(`[data.ts] updateBooking: Updating booking ID ${updatedBooking.id} in Firestore...`);
   try {
     const bookingDocRef = doc(db, 'bookings', updatedBooking.id);
-    const { id, ...bookingData } = updatedBooking; // Exclude id from data to be written
+    const { id, ...bookingData } = updatedBooking; 
     
-    // Ensure dates are Timestamps before writing to Firestore
-    const startDate = bookingData.startDate instanceof Date ? Timestamp.fromDate(bookingData.startDate) : bookingData.startDate;
-    const endDate = bookingData.endDate instanceof Date ? Timestamp.fromDate(bookingData.endDate) : bookingData.endDate;
+    const startDate = bookingData.startDate instanceof Timestamp ? bookingData.startDate.toDate() : new Date(bookingData.startDate as Date);
+    const endDate = bookingData.endDate instanceof Timestamp ? bookingData.endDate.toDate() : new Date(bookingData.endDate as Date);
 
-    const bookingDocData: Partial<BookingDocument> = { // Use Partial for update
-        ...(bookingData as Omit<Booking, 'id' | 'startDate' | 'endDate'>), 
-        startDate: startDate as Timestamp, // Cast as Timestamp
-        endDate: endDate as Timestamp,     // Cast as Timestamp
+    const bookingDocData: Partial<BookingDocument> = { 
+        roomId: bookingData.roomId,
+        guestName: bookingData.guestName,
+        status: bookingData.status,
+        startDate: Timestamp.fromDate(startDate),
+        endDate: Timestamp.fromDate(endDate),
     };
 
     await updateDoc(bookingDocRef, bookingDocData); 
@@ -358,7 +348,7 @@ export const seedInitialData = async () => {
 
   try {
     const locationsCol = collection(db, 'locations');
-    let locationSnapshot = await getDocs(query(locationsCol)); 
+    let locationSnapshot = await getDocs(query(locationsCol));
     
     if (locationSnapshot.empty) {
       console.log("[data.ts] seedInitialData: No locations found. Seeding initial data into Firestore...");
@@ -369,14 +359,13 @@ export const seedInitialData = async () => {
         { name: 'Second Location (Coming Soon)' },
       ];
       
-      const locationRefs: { [key: string]: string } = {};
-      const createdLocationIds: string[] = [];
+      const locationRefs: { [key: string]: string } = {}; // Store generated IDs by name reference
 
       for (const locData of initialLocationsData) {
         const locRef = doc(collection(db, 'locations')); // Auto-generate ID
         batch.set(locRef, locData);
-        createdLocationIds.push(locRef.id); // Store the auto-generated ID
         if (locData.name === 'Granada, Spain') locationRefs.granada = locRef.id;
+        // Store other location IDs if needed for specific room seeding later
       }
       console.log("[data.ts] seedInitialData: Locations prepared for batch.");
 
@@ -386,36 +375,39 @@ export const seedInitialData = async () => {
           { name: 'Ocean View Deluxe', locationId: locationRefs.granada },
           { name: 'Garden Retreat', locationId: locationRefs.granada },
         ];
-        const roomRefs: { [key: string]: string } = {};
+        const roomRefs: { [key: string]: string } = {}; // Store generated room IDs by name reference
 
         for (const roomData of initialRoomsData) {
           const roomRef = doc(collection(db, 'rooms')); // Auto-generate ID
           batch.set(roomRef, roomData);
           if (roomData.name === 'Sunrise Suite') roomRefs.sunrise = roomRef.id;
           if (roomData.name === 'Ocean View Deluxe') roomRefs.ocean = roomRef.id;
+           // Add other room refs if needed for specific booking seeding
         }
         console.log("[data.ts] seedInitialData: Rooms prepared for batch.");
 
-        if (roomRefs.sunrise && roomRefs.ocean) {
+        if (roomRefs.sunrise && roomRefs.ocean) { // Check if specific rooms were created
             const initialBookingsData: Omit<Booking, 'id'>[] = [
             {
-                roomId: roomRefs.sunrise,
+                roomId: roomRefs.sunrise, // Use generated ID
                 guestName: 'Alice Wonderland',
-                startDate: new Date(new Date().setDate(new Date().getDate() - 2)),
-                endDate: new Date(new Date().setDate(new Date().getDate() + 1)),
+                startDate: new Date(new Date().setDate(new Date().getDate() - 2)), // Example: 2 days ago
+                endDate: new Date(new Date().setDate(new Date().getDate() + 1)),   // Example: 1 day from now
                 status: 'booked',
             },
             {
-                roomId: roomRefs.ocean,
+                roomId: roomRefs.ocean, // Use generated ID
                 guestName: 'Bob The Builder',
-                startDate: new Date(),
-                endDate: new Date(new Date().setDate(new Date().getDate() + 3)),
+                startDate: new Date(), // Example: Today
+                endDate: new Date(new Date().setDate(new Date().getDate() + 3)),   // Example: 3 days from now
                 status: 'pending',
             },
             ];
             for (const bookingData of initialBookingsData) {
                 const bookingDoc: BookingDocument = {
-                    ...bookingData,
+                    roomId: bookingData.roomId,
+                    guestName: bookingData.guestName,
+                    status: bookingData.status,
                     startDate: Timestamp.fromDate(new Date(bookingData.startDate as Date)),
                     endDate: Timestamp.fromDate(new Date(bookingData.endDate as Date)),
                 };
@@ -423,13 +415,14 @@ export const seedInitialData = async () => {
                 batch.set(bookingRef, bookingDoc);
             }
             console.log("[data.ts] seedInitialData: Bookings prepared for batch.");
+        } else {
+            console.warn("[data.ts] seedInitialData: Not all expected rooms (Sunrise, Ocean) were referenced for booking seeding.");
         }
+      } else {
+          console.warn("[data.ts] seedInitialData: Granada location ID not found for room seeding.");
       }
       await batch.commit();
       console.log("[data.ts] seedInitialData: Initial data batch committed successfully to Firestore.");
-      // Re-fetch location snapshot to confirm
-      locationSnapshot = await getDocs(query(locationsCol));
-      console.log(`[data.ts] seedInitialData: Confirmed locations after seed: ${locationSnapshot.size} docs.`);
     } else {
       console.log(`[data.ts] seedInitialData: Locations collection is not empty (${locationSnapshot.size} docs found). Skipping seed.`);
     }
@@ -437,3 +430,5 @@ export const seedInitialData = async () => {
     console.error("[data.ts] seedInitialData: Error during seeding process:", error);
   }
 };
+
+    
