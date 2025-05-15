@@ -18,7 +18,6 @@ import type { Location, Room, Booking, BookingDocument } from './types';
 
 // --- Helper Functions ---
 const convertTimestampToDate = (data: any): any => {
-  // Check if data is an object and has the properties before trying to convert
   if (data && typeof data === 'object') {
     if (data.startDate && data.startDate instanceof Timestamp) {
       data.startDate = data.startDate.toDate();
@@ -42,7 +41,11 @@ export const getLocations = async (): Promise<Location[]> => {
     const locationsCol = collection(db, 'locations');
     const locationSnapshot = await getDocs(locationsCol);
     const locationsList = locationSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Location));
-    console.log(`[data.ts] getLocations: Fetched ${locationsList.length} locations.`);
+    
+    // Sort locations alphabetically by name
+    locationsList.sort((a, b) => a.name.localeCompare(b.name));
+    
+    console.log(`[data.ts] getLocations: Fetched and sorted ${locationsList.length} locations.`);
     return locationsList;
   } catch (error) {
     console.error("[data.ts] getLocations: Error fetching locations:", error);
@@ -90,12 +93,15 @@ export const deleteLocation = async (locationId: string): Promise<boolean> => {
   }
   console.log(`[data.ts] deleteLocation: Deleting location ID ${locationId} from Firestore...`);
   try {
+    // Check for associated rooms
     const roomsQuery = query(collection(db, 'rooms'), where('locationId', '==', locationId));
     const roomSnapshot = await getDocs(roomsQuery);
     if (!roomSnapshot.empty) {
-      console.warn(`[data.ts] deleteLocation: Cannot delete location ${locationId}, it has ${roomSnapshot.size} associated rooms.`);
+      console.warn(`[data.ts] deleteLocation: Cannot delete location ${locationId}, it has ${roomSnapshot.size} associated room(s). Please delete rooms first.`);
       return false; 
     }
+
+    // If no rooms, proceed to delete location
     await deleteDoc(doc(db, 'locations', locationId));
     console.log(`[data.ts] deleteLocation: Location ${locationId} deleted.`);
     return true;
@@ -121,7 +127,7 @@ export const getRooms = async (locationId?: string): Promise<Room[]> => {
       roomsQuery = collection(db, 'rooms');
     }
     const roomSnapshot = await getDocs(roomsQuery);
-    const roomList = roomSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() } as Room));
+    const roomList = roomSnapshot.docs.map(docSnap => ({ id: docSnap.id, ...docSnap.data() } as Room));
     console.log(`[data.ts] getRooms: Fetched ${roomList.length} rooms ${logContext}.`);
     return roomList;
   } catch (error) {
@@ -170,12 +176,14 @@ export const deleteRoom = async (roomId: string): Promise<boolean> => {
   }
   console.log(`[data.ts] deleteRoom: Deleting room ID ${roomId} from Firestore...`);
   try {
+    // Check for associated bookings
     const bookingsQuery = query(collection(db, 'bookings'), where('roomId', '==', roomId));
     const bookingSnapshot = await getDocs(bookingsQuery);
     if (!bookingSnapshot.empty) {
-      console.warn(`[data.ts] deleteRoom: Cannot delete room ${roomId}, it has ${bookingSnapshot.size} associated bookings.`);
+      console.warn(`[data.ts] deleteRoom: Cannot delete room ${roomId}, it has ${bookingSnapshot.size} associated booking(s). Please delete bookings first.`);
       return false;
     }
+    // If no bookings, proceed to delete room
     await deleteDoc(doc(db, 'rooms', roomId));
     console.log(`[data.ts] deleteRoom: Room ${roomId} deleted.`);
     return true;
@@ -186,7 +194,6 @@ export const deleteRoom = async (roomId: string): Promise<boolean> => {
 };
 
 // --- Booking Functions ---
-// General getBookings (can be used to get all bookings if no ID is passed or filter by room ID)
 export const getBookings = async (roomId?: string): Promise<Booking[]> => {
   if (!db) {
     console.error("[data.ts] getBookings: Firestore not initialized. Returning empty array.");
@@ -204,9 +211,9 @@ export const getBookings = async (roomId?: string): Promise<Booking[]> => {
 
   try {
     const bookingSnapshot: QuerySnapshot<DocumentData> = await getDocs(bookingsQuery);
-    const bookingList = bookingSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
+    const bookingList = bookingSnapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return convertTimestampToDate({ id: docSnap.id, ...data }) as Booking;
     });
     console.log(`[data.ts] getBookings: Fetched ${bookingList.length} bookings ${roomId ? `for room ${roomId}` : '(all)'}.`);
     return bookingList;
@@ -216,8 +223,11 @@ export const getBookings = async (roomId?: string): Promise<Booking[]> => {
   }
 };
 
+export const getBookingsByRoomId = async (roomId: string): Promise<Booking[]> => {
+  return getBookings(roomId); // Re-use general getBookings with roomId filter
+};
 
-// Specific getBookingsByLocation - used by homepage
+
 export const getBookingsByLocation = async (locationId: string): Promise<Booking[]> => {
   if (!db) {
     console.error("[data.ts] getBookingsByLocation: Firestore not initialized for location query. Returning empty array.");
@@ -238,16 +248,15 @@ export const getBookingsByLocation = async (locationId: string): Promise<Booking
     }
     
     // Firestore 'in' query supports up to 30 elements in the array.
-    // For more than 30 rooms, multiple queries would be needed. This example assumes fewer.
     if (roomIds.length > 30) {
         console.warn("[data.ts] getBookingsByLocation: Location has more than 30 rooms. Querying for first 30 rooms only due to Firestore limitations.");
     }
     
     const bookingsQuery = query(collection(db, 'bookings'), where('roomId', 'in', roomIds.slice(0,30)));
     const bookingSnapshot = await getDocs(bookingsQuery);
-    const bookingList = bookingSnapshot.docs.map(doc => {
-      const data = doc.data();
-      return convertTimestampToDate({ id: doc.id, ...data }) as Booking;
+    const bookingList = bookingSnapshot.docs.map(docSnap => {
+      const data = docSnap.data();
+      return convertTimestampToDate({ id: docSnap.id, ...data }) as Booking;
     });
     console.log(`[data.ts] getBookingsByLocation: Fetched ${bookingList.length} bookings for location ${locationId}.`);
     return bookingList;
@@ -265,7 +274,6 @@ export const addBooking = async (bookingData: Omit<Booking, 'id'>): Promise<Book
   }
   console.log(`[data.ts] addBooking: Adding booking to Firestore...`, bookingData);
   try {
-    // Ensure dates are JS Date objects before converting to Timestamp
     const startDate = bookingData.startDate instanceof Timestamp ? bookingData.startDate.toDate() : new Date(bookingData.startDate as Date);
     const endDate = bookingData.endDate instanceof Timestamp ? bookingData.endDate.toDate() : new Date(bookingData.endDate as Date);
 
@@ -282,8 +290,8 @@ export const addBooking = async (bookingData: Omit<Booking, 'id'>): Promise<Book
     const newBooking: Booking = { 
       ...bookingData, 
       id: docRef.id,
-      startDate: startDate, // Return as JS Date
-      endDate: endDate      // Return as JS Date
+      startDate: startDate, 
+      endDate: endDate      
     };
     return newBooking;
   } catch (error) {
@@ -348,7 +356,7 @@ export const seedInitialData = async () => {
 
   try {
     const locationsCol = collection(db, 'locations');
-    let locationSnapshot = await getDocs(query(locationsCol));
+    const locationSnapshot = await getDocs(query(locationsCol));
     
     if (locationSnapshot.empty) {
       console.log("[data.ts] seedInitialData: No locations found. Seeding initial data into Firestore...");
@@ -359,13 +367,12 @@ export const seedInitialData = async () => {
         { name: 'Second Location (Coming Soon)' },
       ];
       
-      const locationRefs: { [key: string]: string } = {}; // Store generated IDs by name reference
+      const locationRefs: { [key: string]: string } = {}; 
 
       for (const locData of initialLocationsData) {
-        const locRef = doc(collection(db, 'locations')); // Auto-generate ID
+        const locRef = doc(collection(db, 'locations')); 
         batch.set(locRef, locData);
         if (locData.name === 'Granada, Spain') locationRefs.granada = locRef.id;
-        // Store other location IDs if needed for specific room seeding later
       }
       console.log("[data.ts] seedInitialData: Locations prepared for batch.");
 
@@ -375,31 +382,30 @@ export const seedInitialData = async () => {
           { name: 'Ocean View Deluxe', locationId: locationRefs.granada },
           { name: 'Garden Retreat', locationId: locationRefs.granada },
         ];
-        const roomRefs: { [key: string]: string } = {}; // Store generated room IDs by name reference
+        const roomRefs: { [key: string]: string } = {}; 
 
         for (const roomData of initialRoomsData) {
-          const roomRef = doc(collection(db, 'rooms')); // Auto-generate ID
+          const roomRef = doc(collection(db, 'rooms')); 
           batch.set(roomRef, roomData);
           if (roomData.name === 'Sunrise Suite') roomRefs.sunrise = roomRef.id;
           if (roomData.name === 'Ocean View Deluxe') roomRefs.ocean = roomRef.id;
-           // Add other room refs if needed for specific booking seeding
         }
         console.log("[data.ts] seedInitialData: Rooms prepared for batch.");
 
-        if (roomRefs.sunrise && roomRefs.ocean) { // Check if specific rooms were created
+        if (roomRefs.sunrise && roomRefs.ocean) { 
             const initialBookingsData: Omit<Booking, 'id'>[] = [
             {
-                roomId: roomRefs.sunrise, // Use generated ID
+                roomId: roomRefs.sunrise, 
                 guestName: 'Alice Wonderland',
-                startDate: new Date(new Date().setDate(new Date().getDate() - 2)), // Example: 2 days ago
-                endDate: new Date(new Date().setDate(new Date().getDate() + 1)),   // Example: 1 day from now
+                startDate: new Date(new Date().setDate(new Date().getDate() - 2)), 
+                endDate: new Date(new Date().setDate(new Date().getDate() + 1)),   
                 status: 'booked',
             },
             {
-                roomId: roomRefs.ocean, // Use generated ID
+                roomId: roomRefs.ocean, 
                 guestName: 'Bob The Builder',
-                startDate: new Date(), // Example: Today
-                endDate: new Date(new Date().setDate(new Date().getDate() + 3)),   // Example: 3 days from now
+                startDate: new Date(), 
+                endDate: new Date(new Date().setDate(new Date().getDate() + 3)),   
                 status: 'pending',
             },
             ];
@@ -411,7 +417,7 @@ export const seedInitialData = async () => {
                     startDate: Timestamp.fromDate(new Date(bookingData.startDate as Date)),
                     endDate: Timestamp.fromDate(new Date(bookingData.endDate as Date)),
                 };
-                const bookingRef = doc(collection(db, 'bookings')); // Auto-generate ID
+                const bookingRef = doc(collection(db, 'bookings')); 
                 batch.set(bookingRef, bookingDoc);
             }
             console.log("[data.ts] seedInitialData: Bookings prepared for batch.");
@@ -430,5 +436,3 @@ export const seedInitialData = async () => {
     console.error("[data.ts] seedInitialData: Error during seeding process:", error);
   }
 };
-
-    
