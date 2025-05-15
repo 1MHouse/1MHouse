@@ -1,6 +1,6 @@
 
 import { initializeApp, getApps, getApp, type FirebaseOptions } from 'firebase/app';
-import { getFirestore } from 'firebase/firestore';
+import { getFirestore, type Firestore } from 'firebase/firestore'; // Import Firestore type
 
 // Log environment variables at the module scope to see what's available when this file is first imported.
 console.log('[firebase.ts] Raw NEXT_PUBLIC_FIREBASE_PROJECT_ID:', process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
@@ -25,15 +25,16 @@ console.log('[firebase.ts] Firebase config object being constructed:', {
 });
 
 let app;
-let db;
+let db: Firestore | undefined; // Explicitly type db
 
 // Client-side execution only
 if (typeof window !== 'undefined') {
   if (!firebaseConfig.projectId) {
     console.error(
       "[firebase.ts] Firebase projectId is undefined. " +
-      "Ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID is set in your .env.local file (in the project root) " +
-      "and the Next.js development server was RESTARTED."
+      "Ensure NEXT_PUBLIC_FIREBASE_PROJECT_ID is set in your environment " +
+      "(e.g., .env.local or Firebase Studio settings) " +
+      "and the Next.js development server was restarted."
     );
     // We won't throw an error here to allow the app to load for debugging Studio env vars,
     // but Firestore will not work.
@@ -41,8 +42,12 @@ if (typeof window !== 'undefined') {
 
   if (!getApps().length) {
     try {
-      app = initializeApp(firebaseConfig);
-      console.log('[firebase.ts] Firebase app initialized successfully.');
+      if (firebaseConfig.projectId) { // Only initialize if projectId is present
+        app = initializeApp(firebaseConfig);
+        console.log('[firebase.ts] Firebase app initialized successfully.');
+      } else {
+        console.warn('[firebase.ts] Firebase app NOT initialized due to missing projectId.');
+      }
     } catch (e) {
       console.error('[firebase.ts] Error initializing Firebase app:', e);
       console.error('[firebase.ts] Config used for initialization attempt:', {
@@ -59,7 +64,7 @@ if (typeof window !== 'undefined') {
     console.log('[firebase.ts] Existing Firebase app retrieved.');
   }
 
-  if (app && firebaseConfig.projectId) {
+  if (app && firebaseConfig.projectId) { // Check app existence before calling getFirestore
     try {
       db = getFirestore(app);
       console.log('[firebase.ts] Firestore instance obtained.');
