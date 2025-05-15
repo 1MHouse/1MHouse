@@ -17,8 +17,8 @@ export interface Room {
 export interface Booking {
   id: string;
   roomId: string;
-  startDate: Date; // Changed from Date | Timestamp
-  endDate: Date;   // Changed from Date | Timestamp
+  startDate: Date; // Changed to Date
+  endDate: Date;   // Changed to Date
   guestName: string;
   status: Exclude<BookingStatus, 'available'>;
 }
@@ -36,3 +36,4 @@ export interface CalendarCellData {
   status: BookingStatus;
   booking?: Booking; // This will use Date objects after conversion
 }
+

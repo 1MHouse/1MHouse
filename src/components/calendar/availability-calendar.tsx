@@ -9,8 +9,8 @@ import {
   startOfWeek,
   format,
   isWithinInterval,
-  isSameDay,
-  parseISO
+  parseISO,
+  startOfDay // Added for clarity in date comparisons
 } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -25,41 +25,41 @@ const BookingFormDialog = React.lazy(() =>
 
 interface AvailabilityCalendarProps {
   rooms: Room[];
-  initialBookings: Booking[]; // Booking type now has startDate/endDate as Date
+  initialBookings: Booking[]; // Booking type now has startDate/endDate as strictly Date
   currentDisplayDate: Date;
   onBookingUpdate: () => void;
-  allRooms: Room[];
-  allLocations: LocationType[];
+  allRooms: Room[]; // All rooms for the current location context, for the dialog
+  allLocations: LocationType[]; // All locations for the dialog if needed
 }
 
 // Helper function to ensure date values are JavaScript Date objects
 const ensureDateObject = (dateValue: Date | Timestamp | string | undefined): Date => {
   if (dateValue instanceof Date) {
-    return dateValue;
+    return startOfDay(dateValue); // Normalize to start of day
   }
   if (typeof dateValue === 'string') {
     try {
-      return parseISO(dateValue);
+      return startOfDay(parseISO(dateValue)); // Normalize to start of day
     } catch (e) {
       const parsed = new Date(dateValue);
-      if (!isNaN(parsed.getTime())) return parsed;
+      if (!isNaN(parsed.getTime())) return startOfDay(parsed); // Normalize
       console.warn("[AvailabilityCalendar] Failed to parse date string with parseISO and new Date():", dateValue);
-      return new Date();
+      return startOfDay(new Date()); // Normalize
     }
   }
   if (dateValue && typeof (dateValue as Timestamp).toDate === 'function') {
-    return (dateValue as Timestamp).toDate();
+    return startOfDay((dateValue as Timestamp).toDate()); // Normalize to start of day
   }
   if (dateValue === undefined) {
     console.warn("[AvailabilityCalendar] ensureDateObject received undefined, returning current date as fallback.");
-    return new Date();
+    return startOfDay(new Date()); // Normalize
   }
   console.warn("[AvailabilityCalendar] Unexpected date type in ensureDateObject, attempting direct conversion:", dateValue);
   const parsedAttempt = new Date(dateValue as any);
-  if (!isNaN(parsedAttempt.getTime())) return parsedAttempt;
+  if (!isNaN(parsedAttempt.getTime())) return startOfDay(parsedAttempt); // Normalize
 
   console.error("[AvailabilityCalendar] Critical error: could not convert date value to Date object:", dateValue);
-  return new Date();
+  return startOfDay(new Date()); // Normalize
 };
 
 
@@ -84,16 +84,18 @@ export function AvailabilityCalendar({
   initialBookings,
   currentDisplayDate,
   onBookingUpdate,
-  allRooms,
+  allRooms, // These are rooms from the current location, useful for passing to BookingFormDialog
   allLocations
 }: AvailabilityCalendarProps) {
   const { isAdmin } = useAuth();
 
+  // `initialBookings` should now arrive with Date objects due to stricter Booking type
+  // and conversion in `data.ts`. We normalize them to startOfDay for consistent comparison.
   const processedInitialBookings = useMemo(() =>
     initialBookings.map(b => ({
       ...b,
-      startDate: ensureDateObject(b.startDate),
-      endDate: ensureDateObject(b.endDate),
+      startDate: startOfDay(b.startDate), // startDate is already Date
+      endDate: startOfDay(b.endDate),     // endDate is already Date
     })), [initialBookings]);
 
   const [bookings, setBookings] = useState<Booking[]>(processedInitialBookings);
@@ -104,12 +106,12 @@ export function AvailabilityCalendar({
 
   useEffect(() => {
     setIsMounted(true);
-    // Ensure bookings in state always have Date objects
+    // Process initialBookings when component mounts or when initialBookings prop changes
     setBookings(
         initialBookings.map(b => ({
         ...b,
-        startDate: ensureDateObject(b.startDate),
-        endDate: ensureDateObject(b.endDate),
+        startDate: startOfDay(b.startDate), // Ensure normalization
+        endDate: startOfDay(b.endDate),     // Ensure normalization
         }))
     );
   }, [initialBookings]);
@@ -119,27 +121,27 @@ export function AvailabilityCalendar({
 
   const weekDays = useMemo(() => {
     const start = startOfWeek(currentDisplayDate, { weekStartsOn });
-    return Array.from({ length: daysToShow }).map((_, i) => addDays(start, i));
+    return Array.from({ length: daysToShow }).map((_, i) => startOfDay(addDays(start, i))); // Normalize cell dates
   }, [currentDisplayDate]);
 
   const calendarData = useMemo(() => {
-    const currentBookings = bookings; // bookings state now uses Booking[] where dates are Date
+    // currentBookings now comes from the `bookings` state, which has Date objects normalized to startOfDay
+    const currentBookings = bookings;
 
     return rooms.map(room => {
-      const row: CalendarCellData[] = weekDays.map(date => {
+      const row: CalendarCellData[] = weekDays.map(date => { // `date` here is already startOfDay
         const dayBookings = currentBookings.filter(
           booking =>
             booking.roomId === room.id &&
+            // `booking.startDate` and `booking.endDate` are Date objects (startOfDay)
+            // `date` is also Date object (startOfDay)
             isWithinInterval(date, { start: booking.startDate, end: booking.endDate })
-            // `booking.startDate` and `booking.endDate` are now typed as `Date`
-            // due to the change in `Booking` type and processing in `setBookings`.
         );
 
         let cellStatus: BookingStatus = "available";
         let relevantBooking: Booking | undefined = undefined;
 
         if (dayBookings.length > 0) {
-          // Prioritize display: booked > maintenance > pending
           if (dayBookings.some(b => b.status === 'booked')) {
             cellStatus = 'booked';
             relevantBooking = dayBookings.find(b => b.status === 'booked');
@@ -156,7 +158,7 @@ export function AvailabilityCalendar({
           date,
           roomId: room.id,
           status: cellStatus,
-          booking: relevantBooking, // relevantBooking also has Date objects
+          booking: relevantBooking,
         };
       });
       return { room, row };
@@ -165,7 +167,7 @@ export function AvailabilityCalendar({
 
   const handleCellClick = (cellData: CalendarCellData) => {
     if (!isAdmin) return;
-    setSelectedBooking(cellData.booking); // cellData.booking is of type Booking | undefined
+    setSelectedBooking(cellData.booking);
     setSelectedCellData({ roomId: cellData.roomId, date: cellData.date });
     setDialogOpen(true);
   };
@@ -271,8 +273,8 @@ export function AvailabilityCalendar({
           <BookingFormDialog
             isOpen={dialogOpen}
             onClose={handleDialogClose}
-            booking={selectedBooking} // selectedBooking is of type Booking | undefined
-            rooms={allRooms}
+            booking={selectedBooking}
+            rooms={allRooms} // Pass current location's rooms to the dialog
             defaultDate={selectedCellData?.date}
             defaultRoomId={selectedCellData?.roomId}
           />
@@ -281,3 +283,4 @@ export function AvailabilityCalendar({
     </Card>
   );
 }
+
