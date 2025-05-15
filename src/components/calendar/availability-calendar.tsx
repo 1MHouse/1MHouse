@@ -2,14 +2,15 @@
 "use client";
 
 import type { Room, Booking, BookingStatus, CalendarCellData, Location as LocationType } from "@/lib/types";
+import type { Timestamp } from 'firebase/firestore'; // Added for explicit Timestamp type
 import { useState, useEffect, useMemo } from "react";
-import { 
-  addDays, 
-  startOfWeek, 
-  format, 
-  isWithinInterval, 
+import {
+  addDays,
+  startOfWeek,
+  format,
+  isWithinInterval,
   isSameDay,
-  parseISO // Added for safety if initialBookings dates are strings
+  parseISO
 } from "date-fns";
 import { ScrollArea, ScrollBar } from "@/components/ui/scroll-area";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -17,18 +18,18 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/contexts/auth-context";
 import React from "react";
 
-const BookingFormDialog = React.lazy(() => 
+const BookingFormDialog = React.lazy(() =>
   import('@/components/admin/booking-form-dialog').then(module => ({ default: module.BookingFormDialog }))
 );
 
 
 interface AvailabilityCalendarProps {
-  rooms: Room[]; 
-  initialBookings: Booking[]; 
+  rooms: Room[];
+  initialBookings: Booking[];
   currentDisplayDate: Date;
   onBookingUpdate: () => void;
   allRooms: Room[]; // All rooms from all locations, for the booking dialog
-  allLocations: LocationType[]; 
+  allLocations: LocationType[];
 }
 
 const getStatusColor = (status: BookingStatus): string => {
@@ -36,7 +37,7 @@ const getStatusColor = (status: BookingStatus): string => {
     case "booked":
       return "bg-destructive/70 text-destructive-foreground";
     case "pending":
-      return "bg-yellow-400/70 text-yellow-foreground"; 
+      return "bg-yellow-400/70 text-yellow-foreground";
     case "maintenance":
       return "bg-muted-foreground/70 text-muted";
     case "available":
@@ -46,25 +47,42 @@ const getStatusColor = (status: BookingStatus): string => {
   }
 };
 
-export function AvailabilityCalendar({ 
-  rooms, 
-  initialBookings, 
-  currentDisplayDate, 
+// Helper function to ensure date values are JavaScript Date objects
+const ensureDateObject = (dateValue: Date | Timestamp | string): Date => {
+  if (dateValue instanceof Date) {
+    return dateValue;
+  }
+  if (typeof dateValue === 'string') {
+    return parseISO(dateValue);
+  }
+  // If it's not a Date or string, assume it's a Firestore Timestamp
+  if (dateValue && typeof (dateValue as Timestamp).toDate === 'function') {
+    return (dateValue as Timestamp).toDate();
+  }
+  // Fallback for any other unexpected case, though ideally types should prevent this
+  console.warn("[AvailabilityCalendar] Unexpected date type, attempting direct conversion:", dateValue);
+  return new Date(dateValue as any);
+};
+
+
+export function AvailabilityCalendar({
+  rooms,
+  initialBookings,
+  currentDisplayDate,
   onBookingUpdate,
   allRooms, // allRooms for admin dialogs, rooms for current location display
-  allLocations 
+  allLocations
 }: AvailabilityCalendarProps) {
   const { isAdmin } = useAuth();
-  
-  // Ensure initialBookings dates are Date objects
-  const processedInitialBookings = useMemo(() => 
+
+  const processedInitialBookings = useMemo(() =>
     initialBookings.map(b => ({
       ...b,
-      startDate: typeof b.startDate === 'string' ? parseISO(b.startDate) : new Date(b.startDate),
-      endDate: typeof b.endDate === 'string' ? parseISO(b.endDate) : new Date(b.endDate),
+      startDate: ensureDateObject(b.startDate),
+      endDate: ensureDateObject(b.endDate),
     })), [initialBookings]);
 
-  const [bookings, setBookings] = useState<Booking[]>(processedInitialBookings);
+  const [bookings, setBookings] = useState<Booking[]>(processedInitialBookings.map(b => ({...b, startDate: new Date(b.startDate), endDate: new Date(b.endDate) }))); // Ensure bookings state also has Date objects
   const [isMounted, setIsMounted] = useState(false);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [selectedBooking, setSelectedBooking] = useState<Booking | undefined>(undefined);
@@ -72,12 +90,11 @@ export function AvailabilityCalendar({
 
   useEffect(() => {
     setIsMounted(true);
-    // Re-process if initialBookings prop changes identity
     setBookings(
         initialBookings.map(b => ({
         ...b,
-        startDate: typeof b.startDate === 'string' ? parseISO(b.startDate) : new Date(b.startDate),
-        endDate: typeof b.endDate === 'string' ? parseISO(b.endDate) : new Date(b.endDate),
+        startDate: ensureDateObject(b.startDate),
+        endDate: ensureDateObject(b.endDate),
         }))
     );
   }, [initialBookings]);
@@ -91,21 +108,27 @@ export function AvailabilityCalendar({
   }, [currentDisplayDate]);
 
   const calendarData = useMemo(() => {
+    // Ensure bookings used here have Date objects
+    const currentBookings = bookings.map(b => ({
+      ...b,
+      startDate: ensureDateObject(b.startDate),
+      endDate: ensureDateObject(b.endDate)
+    }));
+
     return rooms.map(room => {
       const row: CalendarCellData[] = weekDays.map(date => {
-        const dayBookings = bookings.filter(
+        const dayBookings = currentBookings.filter(
           booking =>
             booking.roomId === room.id &&
             isWithinInterval(date, { start: booking.startDate, end: booking.endDate }) &&
-            (isSameDay(date, booking.startDate) || isSameDay(date, booking.endDate) || 
+            (isSameDay(date, booking.startDate) || isSameDay(date, booking.endDate) ||
              (date > booking.startDate && date < booking.endDate))
         );
-        
+
         let cellStatus: BookingStatus = "available";
         let relevantBooking: Booking | undefined = undefined;
 
         if (dayBookings.length > 0) {
-          // Prioritize status display: booked > maintenance > pending
           if (dayBookings.some(b => b.status === 'booked')) {
             cellStatus = 'booked';
             relevantBooking = dayBookings.find(b => b.status === 'booked');
@@ -117,7 +140,7 @@ export function AvailabilityCalendar({
             relevantBooking = dayBookings.find(b => b.status === 'pending');
           }
         }
-        
+
         return {
           date,
           roomId: room.id,
@@ -131,7 +154,7 @@ export function AvailabilityCalendar({
 
   const handleCellClick = (cellData: CalendarCellData) => {
     if (!isAdmin) return;
-    setSelectedBooking(cellData.booking); 
+    setSelectedBooking(cellData.booking);
     setSelectedCellData({ roomId: cellData.roomId, date: cellData.date });
     setDialogOpen(true);
   };
@@ -141,10 +164,10 @@ export function AvailabilityCalendar({
     setSelectedBooking(undefined);
     setSelectedCellData(undefined);
     if (updated) {
-      onBookingUpdate(); 
+      onBookingUpdate();
     }
   };
-  
+
   if (!isMounted) {
     return (
       <Card>
@@ -238,8 +261,7 @@ export function AvailabilityCalendar({
             isOpen={dialogOpen}
             onClose={handleDialogClose}
             booking={selectedBooking}
-            // rooms={rooms} // For in-memory calendar view, use rooms specific to current location
-            rooms={allRooms} // For admin editing/creating, show all rooms
+            rooms={allRooms}
             defaultDate={selectedCellData?.date}
             defaultRoomId={selectedCellData?.roomId}
           />
