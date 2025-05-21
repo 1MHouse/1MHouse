@@ -7,7 +7,8 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+// Label component is not directly used if using FormField with FormLabel
+// import { Label } from '@/components/ui/label';
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from '@/components/ui/card';
 import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from "@/components/ui/form";
 import { useAuth } from '@/contexts/auth-context';
@@ -15,44 +16,46 @@ import { useRouter } from 'next/navigation';
 import { useToast } from "@/hooks/use-toast";
 import { Loader2 } from 'lucide-react';
 
+// IMPORTANT: Guide user to use the email they set up in Firebase Authentication
+const ADMIN_EMAIL_HINT = "admin@example.com"; // Replace if you want to display a different hint
+
 const loginSchema = z.object({
-  email: z.string().email({ message: "Invalid email address." }).default("admin@example.com"), // Default for convenience
+  email: z.string().email({ message: "Invalid email address." }),
   password: z.string().min(1, { message: "Password is required." }),
 });
 
 type LoginFormValues = z.infer<typeof loginSchema>;
 
 export function AdminLoginForm() {
-  const [isLoading, setIsLoading] = useState(false);
-  const { login } = useAuth();
+  const [isSubmitting, setIsSubmitting] = useState(false); // Renamed from isLoading to avoid conflict with useAuth's isLoading
+  const { login, isLoading: isAuthLoading } = useAuth(); // Get isAuthLoading from context
   const router = useRouter();
   const { toast } = useToast();
 
   const form = useForm<LoginFormValues>({
     resolver: zodResolver(loginSchema),
     defaultValues: {
-      email: 'admin@example.com', // Pre-fill email for demo
+      email: '', // User should enter their admin email
       password: '',
     },
   });
 
   const onSubmit: SubmitHandler<LoginFormValues> = async (data) => {
-    setIsLoading(true);
-    const success = await login(data.password);
-    setIsLoading(false);
+    setIsSubmitting(true);
+    const success = await login(data.email, data.password);
+    setIsSubmitting(false);
 
     if (success) {
       toast({
         title: "Login Successful",
         description: "Welcome, Admin!",
       });
-      router.push('/admin');
+      // Check for redirect query parameter
+      const queryParams = new URLSearchParams(window.location.search);
+      const redirect = queryParams.get('redirect');
+      router.push(redirect || '/admin');
     } else {
-      toast({
-        title: "Login Failed",
-        description: "Invalid credentials. Please try again.",
-        variant: "destructive",
-      });
+      // Specific error toasts are handled by the login function in AuthContext
       form.resetField("password");
     }
   };
@@ -61,7 +64,7 @@ export function AdminLoginForm() {
     <Card className="w-full max-w-md shadow-xl">
       <CardHeader>
         <CardTitle className="text-2xl text-primary">Admin Login</CardTitle>
-        <CardDescription>Enter your credentials to access the admin panel. (Hint: password is 'password123')</CardDescription>
+        <CardDescription>Enter your admin credentials. Use the email address you set up in Firebase (e.g., {ADMIN_EMAIL_HINT}).</CardDescription>
       </CardHeader>
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)}>
@@ -94,11 +97,11 @@ export function AdminLoginForm() {
             />
           </CardContent>
           <CardFooter className="flex flex-col gap-2">
-            <Button type="submit" className="w-full" disabled={isLoading}>
-              {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+            <Button type="submit" className="w-full" disabled={isSubmitting || isAuthLoading}>
+              {(isSubmitting || isAuthLoading) && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
               Login
             </Button>
-            <Button variant="link" onClick={() => router.push('/')} className="w-full" type="button">
+            <Button variant="link" onClick={() => router.push('/')} className="w-full" type="button" disabled={isSubmitting || isAuthLoading}>
               Back to Homepage
             </Button>
           </CardFooter>
@@ -107,5 +110,3 @@ export function AdminLoginForm() {
     </Card>
   );
 }
-
-    

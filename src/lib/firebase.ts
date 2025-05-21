@@ -1,6 +1,7 @@
 
 import { initializeApp, getApps, getApp, type FirebaseOptions } from 'firebase/app';
-import { getFirestore, type Firestore } from 'firebase/firestore'; // Import Firestore type
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getAuth, type Auth } from 'firebase/auth'; // Import Firebase Auth
 
 // Log environment variables at the module scope to see what's available when this file is first imported.
 console.log('[firebase.ts] Raw NEXT_PUBLIC_FIREBASE_PROJECT_ID:', process.env.NEXT_PUBLIC_FIREBASE_PROJECT_ID);
@@ -25,7 +26,8 @@ console.log('[firebase.ts] Firebase config object being constructed:', {
 });
 
 let app;
-let db: Firestore | undefined; // Explicitly type db
+let db: Firestore | undefined;
+let auth: Auth | undefined; // Declare auth variable
 
 // Client-side execution only
 if (typeof window !== 'undefined') {
@@ -36,8 +38,6 @@ if (typeof window !== 'undefined') {
       "(e.g., .env.local or Firebase Studio settings) " +
       "and the Next.js development server was restarted."
     );
-    // We won't throw an error here to allow the app to load for debugging Studio env vars,
-    // but Firestore will not work.
   }
 
   if (!getApps().length) {
@@ -64,18 +64,20 @@ if (typeof window !== 'undefined') {
     console.log('[firebase.ts] Existing Firebase app retrieved.');
   }
 
-  if (app && firebaseConfig.projectId) { // Check app existence before calling getFirestore
+  if (app && firebaseConfig.projectId) {
     try {
       db = getFirestore(app);
       console.log('[firebase.ts] Firestore instance obtained.');
+      auth = getAuth(app); // Initialize Firebase Auth
+      console.log('[firebase.ts] Firebase Auth instance obtained.');
     } catch (e) {
-      console.error('[firebase.ts] Error obtaining Firestore instance:', e);
+      console.error('[firebase.ts] Error obtaining Firestore or Auth instance:', e);
     }
   } else {
-     console.warn('[firebase.ts] Firestore instance NOT obtained, likely due to missing projectId or app initialization failure.');
+     console.warn('[firebase.ts] Firestore/Auth instance NOT obtained, likely due to missing projectId or app initialization failure.');
   }
 } else {
-  console.log('[firebase.ts] Firebase script not running in browser environment. db will be undefined.');
+  console.log('[firebase.ts] Firebase script not running in browser environment. db and auth will be undefined.');
 }
 
-export { app, db };
+export { app, db, auth }; // Export auth
