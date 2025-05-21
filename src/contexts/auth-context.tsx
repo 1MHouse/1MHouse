@@ -14,7 +14,7 @@ import {
 import { useToast } from "@/hooks/use-toast";
 
 // IMPORTANT: Set this to the email address you created for the admin in the Firebase Console
-const ADMIN_EMAIL = "admin@example.com"; // Replace with your actual admin email
+const ADMIN_EMAIL = "1mhouseinternational@gmail.com"; // Replace with your actual admin email
 
 interface AuthContextType {
   user: User | null;
